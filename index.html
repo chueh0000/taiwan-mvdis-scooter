@@ -57,11 +57,6 @@
           <i data-lucide="clipboard-list" class="w-4 h-4 text-slate-600"></i>
           <span>考照須知</span>
         </button>
-        <button id="btn-deploy" type="button" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors">
-          <i data-lucide="cloud-upload" class="w-4 h-4 text-amber-700"></i>
-          <span class="hidden sm:inline">Cloudflare Pages 部署</span>
-          <span class="sm:hidden">部署</span>
-        </button>
         <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors">
           <span>前往預約</span>
           <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
@@ -343,49 +338,6 @@
       </div>
       <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
         <button type="button" data-close-modal="modal-guide" class="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg">關閉</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: Cloudflare Pages Deployment Guide -->
-  <div id="modal-deploy" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-xl">
-      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
-          <i data-lucide="cloud-upload" class="w-5 h-5 text-amber-600"></i>
-          <span>部署到 Cloudflare Pages</span>
-        </h3>
-        <button type="button" data-close-modal="modal-deploy" class="p-1 text-slate-400 hover:text-slate-700 rounded-lg">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-      <div class="p-5 overflow-y-auto scrollbar-thin space-y-4 text-xs text-slate-700 leading-relaxed">
-        <p>若要啟用<strong>即時剩餘名額查詢</strong>，請使用隨附的 <code class="bg-slate-200/70 px-1 rounded">taiwan-mvdis-pages.zip</code>（內含 <code class="bg-slate-200/70 px-1 rounded">index.html</code> 與 Cloudflare Pages Function <code class="bg-slate-200/70 px-1 rounded">functions/api/quota.js</code>），透過 Cloudflare Pages 免費額度即可在邊緣端代理查詢監理服務網。</p>
-
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-          <div class="font-bold text-slate-900">方式一：Direct Upload（最快，免 Git）</div>
-          <ol class="list-decimal pl-4 space-y-1">
-            <li>建立一個空資料夾（例如 <code class="bg-slate-200/70 px-1 rounded">mvdis-map</code>），將本檔案存為 <code class="bg-slate-200/70 px-1 rounded">index.html</code> 放入其中。</li>
-            <li>登入 Cloudflare Dashboard → <strong>Workers &amp; Pages</strong> → <strong>Create</strong> → <strong>Pages</strong> → <strong>Upload assets</strong>。</li>
-            <li>輸入專案名稱，直接拖曳資料夾上傳並點選 <strong>Deploy site</strong>，數秒內即可取得 <code class="bg-slate-200/70 px-1 rounded">*.pages.dev</code> 網址。</li>
-          </ol>
-        </div>
-
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-          <div class="font-bold text-slate-900">方式二：透過 Wrangler CLI 一鍵部署</div>
-          <div class="relative">
-            <pre id="wrangler-cmd" class="bg-slate-900 text-emerald-300 rounded-lg p-3 overflow-x-auto text-[11px] font-mono">npx wrangler pages deploy ./mvdis-map --project-name=taiwan-mvdis-map</pre>
-            <button id="btn-copy-cmd" type="button" class="absolute top-2 right-2 px-2 py-1 text-[11px] font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors">複製</button>
-          </div>
-        </div>
-
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1.5">
-          <div class="font-bold text-slate-900">方式三：連結 GitHub 儲存庫</div>
-          <p>將 <code class="bg-slate-200/70 px-1 rounded">index.html</code> 推送至 GitHub 根目錄，在 Cloudflare Pages 連結該 Repo，<strong>Build command 留空</strong>、<strong>Build output directory 填 <code class="bg-slate-200/70 px-1 rounded">/</code></strong> 即可自動部署。</p>
-        </div>
-      </div>
-      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
-        <button type="button" data-close-modal="modal-deploy" class="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg">了解</button>
       </div>
     </div>
   </div>
@@ -2502,28 +2454,23 @@
       });
 
       document.getElementById('btn-guide').addEventListener('click', () => openModal('modal-guide'));
-      document.getElementById('btn-deploy').addEventListener('click', () => openModal('modal-deploy'));
 
       document.querySelectorAll('[data-close-modal]').forEach((btn) => {
         btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
       });
 
-      ['modal-guide', 'modal-deploy'].forEach((id) => {
+      ['modal-guide'].forEach((id) => {
         const overlay = document.getElementById(id);
-        overlay.addEventListener('click', (e) => {
-          if (e.target === overlay) closeModal(id);
-        });
-      });
-
-      document.getElementById('btn-copy-cmd').addEventListener('click', () => {
-        const cmd = document.getElementById('wrangler-cmd').textContent.trim();
-        copyText(cmd);
+        if (overlay) {
+          overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeModal(id);
+          });
+        }
       });
 
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
           closeModal('modal-guide');
-          closeModal('modal-deploy');
         }
       });
     }
