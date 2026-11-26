@@ -8,7 +8,7 @@
 ## 部署方式
 1. 解壓縮後執行：
    ```bash
-   npx wrangler pages deploy . --project-name=taiwan-mvdis-map
+   npx wrangler pages deploy . --project-name=taiwan-mvdis-scooter
    ```
    或將整個資料夾推送至 GitHub 並連結至 Cloudflare Pages（Build command 留空、Build output directory 填 `/`）。
 2. 部署完成後，前端在 `*.pages.dev` 網域下會自動呼叫 `/api/quota` 取得即時名額。
