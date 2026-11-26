@@ -1,0 +1,2541 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>全臺普通重型機車考照預約地圖｜監理站地區與時段查詢</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
+    body {
+      font-family: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    .county-path {
+      transition: fill 0.18s ease, stroke 0.18s ease, stroke-width 0.18s ease, opacity 0.18s ease;
+      cursor: pointer;
+    }
+    .county-path:hover {
+      filter: brightness(0.95);
+    }
+    .map-tooltip {
+      pointer-events: none;
+      transition: opacity 0.12s ease, transform 0.12s ease;
+    }
+    .scrollbar-thin::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-track {
+      background: transparent;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+          <i data-lucide="map-pin" class="w-5 h-5"></i>
+        </div>
+        <div class="min-w-0">
+          <h1 class="text-base sm:text-lg font-bold text-slate-900 truncate">全臺普通重型機車考照預約地圖</h1>
+          <p class="text-xs text-slate-500 truncate hidden sm:block">整合交通部公路局各區監理所站開放地區、平日場次與報到時段</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button id="btn-guide" type="button" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
+          <i data-lucide="clipboard-list" class="w-4 h-4 text-slate-600"></i>
+          <span>考照須知</span>
+        </button>
+        <button id="btn-deploy" type="button" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors">
+          <i data-lucide="cloud-upload" class="w-4 h-4 text-amber-700"></i>
+          <span class="hidden sm:inline">Cloudflare Pages 部署</span>
+          <span class="sm:hidden">部署</span>
+        </button>
+        <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors">
+          <span>前往預約</span>
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-5">
+    <!-- Live Quota Full-Range Bar -->
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span id="quota-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <span id="quota-mode-badge" class="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">示範名額預覽</span>
+          </div>
+          <span id="range-window-label" class="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg"></span>
+          <label class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer select-none ml-1">
+            <input id="only-available-toggle" type="checkbox" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+            <span>僅顯示尚有名額</span>
+          </label>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span id="quota-updated-at" class="text-[11px] text-slate-400"></span>
+          <button id="btn-refresh-quota" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>更新全區間名額</span>
+          </button>
+          <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer transition-colors">
+            <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+            <span>匯入 JSON</span>
+            <input id="quota-json-input" type="file" accept=".json,application/json" class="hidden" />
+          </label>
+        </div>
+      </div>
+
+      <!-- Range Preset + Optional Single Date Filter -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-100">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs font-semibold text-slate-500 mr-1">查詢範圍：</span>
+          <button type="button" data-range="all" class="range-btn px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors">全部可預約（30日內）</button>
+          <button type="button" data-range="7" class="range-btn px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors">未來 7 日內</button>
+          <button type="button" data-range="14" class="range-btn px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors">未來 14 日內</button>
+          <button type="button" data-range="single" class="range-btn px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors">指定單日</button>
+          <div id="single-date-wrap" class="hidden inline-flex items-center gap-1.5 ml-1">
+            <input id="exam-date-input" type="date" class="text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            <span id="exam-date-weekday" class="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md"></span>
+          </div>
+        </div>
+        <span class="text-[11px] text-slate-400">依監理服務網規定：開放考照日前 3 日至前 1 個月內預約</span>
+      </div>
+    </section>
+
+    <!-- Filter Panel -->
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <!-- Exam Type -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">報考身分</label>
+          <div class="grid grid-cols-2 bg-slate-100 p-1 rounded-xl" id="exam-type-group">
+            <button type="button" data-exam-type="first" class="exam-type-btn py-1.5 px-2 text-xs font-semibold rounded-lg transition-all">初考領（含講習）</button>
+            <button type="button" data-exam-type="retake" class="exam-type-btn py-1.5 px-2 text-xs font-semibold rounded-lg transition-all">重考 / 免講習</button>
+          </div>
+        </div>
+
+
+        <!-- Period -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">報到 / 考照時段</label>
+          <div class="grid grid-cols-3 bg-slate-100 p-1 rounded-xl" id="period-group">
+            <button type="button" data-period="all" class="period-btn py-1.5 px-2 text-xs font-semibold rounded-lg transition-all">全天</button>
+            <button type="button" data-period="am" class="period-btn py-1.5 px-2 text-xs font-semibold rounded-lg transition-all">上午場</button>
+            <button type="button" data-period="pm" class="period-btn py-1.5 px-2 text-xs font-semibold rounded-lg transition-all">下午場</button>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div>
+          <label for="search-input" class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">搜尋監理站或地區</label>
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            <input id="search-input" type="text" placeholder="輸入站名、縣市或路名..." class="w-full pl-9 pr-8 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all" />
+            <button id="btn-clear-search" type="button" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" aria-label="清除搜尋">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Day & Region Row -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+        <!-- Day of week -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs font-semibold text-slate-500 mr-1">星期：</span>
+          <button type="button" data-day="all" class="day-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">全部平日</button>
+          <button type="button" data-day="1" class="day-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">週一</button>
+          <button type="button" data-day="2" class="day-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">週二</button>
+          <button type="button" data-day="3" class="day-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">週三</button>
+          <button type="button" data-day="4" class="day-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">週四</button>
+          <button type="button" data-day="5" class="day-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">週五</button>
+        </div>
+
+        <!-- Region Pills -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs font-semibold text-slate-500 mr-1">區域：</span>
+          <button type="button" data-region="all" class="region-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">全臺</button>
+          <button type="button" data-region="north" class="region-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">北部</button>
+          <button type="button" data-region="central" class="region-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">中部</button>
+          <button type="button" data-region="south" class="region-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">南部</button>
+          <button type="button" data-region="east" class="region-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">東部</button>
+          <button type="button" data-region="islands" class="region-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors">離島</button>
+          <button id="btn-reset-all" type="button" class="ml-1 px-2.5 py-1 text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors">重設</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPI Summary -->
+    <section class="grid grid-cols-3 gap-3 sm:gap-4">
+      <div class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+          <i data-lucide="map" class="w-4 h-4"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="text-xs text-slate-500 truncate">符合條件縣市</div>
+          <div class="text-lg sm:text-xl font-bold text-slate-900"><span id="kpi-counties">0</span> <span class="text-xs font-normal text-slate-400">/ 22</span></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
+          <i data-lucide="building-2" class="w-4 h-4"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="text-xs text-slate-500 truncate">符合監理所站</div>
+          <div class="text-lg sm:text-xl font-bold text-slate-900"><span id="kpi-stations">0</span> <span class="text-xs font-normal text-slate-400">站</span></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+          <i data-lucide="calendar-clock" class="w-4 h-4"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="text-xs text-slate-500 truncate">尚餘名額總計</div>
+          <div class="text-lg sm:text-xl font-bold text-slate-900"><span id="kpi-sessions">0</span> <span class="text-xs font-normal text-slate-400">名</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Split: Map + Station List -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      <!-- Left: Simplified Taiwan Vector Map -->
+      <div class="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 lg:sticky lg:top-20">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+              <i data-lucide="compass" class="w-4 h-4 text-emerald-600"></i>
+              <span>簡化考照地區地圖</span>
+            </h2>
+            <p class="text-xs text-slate-500">點擊縣市可篩選該區監理站與場次</p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button id="btn-clear-county" type="button" class="hidden inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-full transition-colors">
+              <span id="selected-county-label"></span>
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+            <div class="inline-flex bg-slate-100 p-0.5 rounded-lg text-[11px] font-semibold">
+              <button type="button" data-map-mode="geo" class="map-mode-btn px-2 py-1 rounded-md transition-all">輪廓</button>
+              <button type="button" data-map-mode="tile" class="map-mode-btn px-2 py-1 rounded-md transition-all">方格</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Map Container -->
+        <div id="map-wrapper" class="relative w-full bg-slate-50 rounded-xl border border-slate-100 overflow-hidden" style="min-height: 460px;">
+          <div id="map-loading" class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs z-10 bg-slate-50">
+            <div class="w-7 h-7 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+            <span>載入臺灣簡化縣市地圖中...</span>
+          </div>
+          <div id="map-error" class="hidden absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center z-10 bg-slate-50">
+            <i data-lucide="wifi-off" class="w-8 h-8 text-slate-400"></i>
+            <div class="text-sm font-semibold text-slate-700">無法載入地圖圖資</div>
+            <p class="text-xs text-slate-500">您仍可直接使用上方區域按鈕與右側清單查詢所有監理站時段。</p>
+            <button id="btn-retry-map" type="button" class="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">重新載入地圖</button>
+          </div>
+          <svg id="taiwan-map" class="w-full h-auto block" viewBox="0 0 460 560" role="img" aria-label="臺灣各縣市普通重型機車考照監理站簡化地圖"></svg>
+          <div id="taiwan-tile-map" class="hidden p-4 select-none"></div>
+          <!-- Floating Tooltip -->
+          <div id="map-tooltip" class="map-tooltip opacity-0 absolute z-20 bg-slate-900/95 text-white text-xs rounded-xl px-3 py-2 shadow-lg max-w-[210px]">
+            <div id="tooltip-title" class="font-bold text-sm"></div>
+            <div id="tooltip-body" class="text-slate-300 mt-0.5 leading-relaxed"></div>
+          </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 px-1">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500 inline-block"></span>名額充足 (≥10)</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-amber-400 inline-block"></span>名額緊張 (1–9)</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-rose-400 inline-block"></span>已額滿 (0)</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-sky-500 inline-block"></span>目前選取</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-slate-200 inline-block"></span>無場次</span>
+          </div>
+          <span class="text-[11px] text-slate-400">圓點數字 = 剩餘名額</span>
+        </div>
+      </div>
+
+      <!-- Right: Station Cards -->
+      <div class="lg:col-span-7 space-y-3">
+        <div class="flex items-center justify-between gap-2 px-1">
+          <div>
+            <h2 id="list-heading" class="text-sm sm:text-base font-bold text-slate-900">全臺監理所站考照時段</h2>
+            <p id="list-subheading" class="text-xs text-slate-500 mt-0.5">點擊下方卡片可檢視詳細報到、講習與筆路試時程</p>
+          </div>
+          <span id="active-filter-badge" class="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full shrink-0"></span>
+        </div>
+
+        <!-- Info Banner about Real-time Quota -->
+        <div class="bg-sky-50 border border-sky-200/80 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5 text-xs text-sky-900">
+          <i data-lucide="info" class="w-4 h-4 text-sky-600 shrink-0 mt-0.5"></i>
+          <p id="quota-info-banner" class="leading-relaxed">
+            目前為<strong>示範名額預覽模式</strong>（一次呈現未來 30 日可預約區間之模擬每日剩餘名額）。部署至 <strong>Cloudflare Pages</strong> 後，前端會自動呼叫 <code class="bg-sky-100 px-1 rounded">/api/quota</code> 一次抓回各站完整可預約區間的即時名額。
+          </p>
+        </div>
+
+        <!-- Cards Container -->
+        <div id="station-list" class="space-y-3"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 mt-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+      <div>資料來源：交通部公路局各區監理所官網、政府資料開放平台縣市界線圖資（Taiwan.TopoJSON）</div>
+      <div class="flex items-center gap-3">
+        <a href="https://www.mvdis.gov.tw/m3-emv-trn/exm/locations" target="_blank" rel="noopener noreferrer" class="text-emerald-700 hover:underline">監理服務網預約系統</a>
+        <span>·</span>
+        <a href="https://hpt.thb.gov.tw/reserve/index" target="_blank" rel="noopener noreferrer" class="text-emerald-700 hover:underline">機車危險感知教育平台</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Modal: Exam Guide -->
+  <div id="modal-guide" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-xl">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+          <i data-lucide="clipboard-list" class="w-5 h-5 text-emerald-600"></i>
+          <span>普通重型機車考照預約須知</span>
+        </h3>
+        <button type="button" data-close-modal="modal-guide" class="p-1 text-slate-400 hover:text-slate-700 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-5 overflow-y-auto scrollbar-thin space-y-4 text-sm text-slate-700">
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 space-y-1.5">
+          <div class="font-bold text-emerald-900 text-xs uppercase tracking-wider">預約與取消規則</div>
+          <ul class="list-disc pl-4 space-y-1 text-xs leading-relaxed text-emerald-900">
+            <li>全面採<strong>網路預約報名</strong>，不接受現場臨時報名。</li>
+            <li>開放預約期間為<strong>考照日前 1 個月至考照日前 3 日 24:00 止</strong>（考照前一日與當日無法預約）。</li>
+            <li>無法應考須至遲於<strong>考照當日上午 07:00 前</strong>於網路取消；2 個月內預約 3 次未到者，停權 2 個月。</li>
+            <li>筆試或路考未通過者，須間隔 <strong>7 日</strong>後始得重新預約補考。</li>
+          </ul>
+        </div>
+        <div class="space-y-2">
+          <div class="font-bold text-slate-900 text-xs uppercase tracking-wider">報考資格與應備文件</div>
+          <ul class="list-disc pl-4 space-y-1 text-xs leading-relaxed">
+            <li><strong>年齡資格：</strong>須年滿 18 歲（普通重型機車為 50cc 以上至 250cc 以下）。</li>
+            <li><strong>必備證件：</strong>國民身分證正本（或效期 6 個月以上居留證正本）、合格「機車駕駛執照登記書（體檢表）」正本（有效期限 1 年）、近 2 年內同組 1 吋彩色正面半身相片 3 張（體檢與報名用）。</li>
+            <li><strong>安全講習：</strong>初次考領機車駕照（含持有汽車駕照但無輕型機車駕照者），必須完成 <strong>120 分鐘</strong>初考領安全駕駛講習（紀錄保留 1 年）方可參加筆路試；逾報到時間恕不受理。</li>
+            <li><strong>規費參考：</strong>全考報名費 250 元、1 年內補考或僅路考 125 元、及格領照費 200 元（如有交通違規罰鍰須先結清）。</li>
+          </ul>
+        </div>
+        <div class="space-y-1.5">
+          <div class="font-bold text-slate-900 text-xs uppercase tracking-wider">考前準備</div>
+          <p class="text-xs leading-relaxed">預約前須至「<a href="https://hpt.thb.gov.tw/reserve/index" target="_blank" rel="noopener noreferrer" class="text-emerald-700 font-semibold underline">機車危險感知教育平台</a>」完成情境測驗；應考當日請穿著包覆性良好之鞋子，勿穿拖鞋或高跟鞋。</p>
+        </div>
+      </div>
+      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <button type="button" data-close-modal="modal-guide" class="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Cloudflare Pages Deployment Guide -->
+  <div id="modal-deploy" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-xl">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+          <i data-lucide="cloud-upload" class="w-5 h-5 text-amber-600"></i>
+          <span>部署到 Cloudflare Pages</span>
+        </h3>
+        <button type="button" data-close-modal="modal-deploy" class="p-1 text-slate-400 hover:text-slate-700 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-5 overflow-y-auto scrollbar-thin space-y-4 text-xs text-slate-700 leading-relaxed">
+        <p>若要啟用<strong>即時剩餘名額查詢</strong>，請使用隨附的 <code class="bg-slate-200/70 px-1 rounded">taiwan-mvdis-pages.zip</code>（內含 <code class="bg-slate-200/70 px-1 rounded">index.html</code> 與 Cloudflare Pages Function <code class="bg-slate-200/70 px-1 rounded">functions/api/quota.js</code>），透過 Cloudflare Pages 免費額度即可在邊緣端代理查詢監理服務網。</p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+          <div class="font-bold text-slate-900">方式一：Direct Upload（最快，免 Git）</div>
+          <ol class="list-decimal pl-4 space-y-1">
+            <li>建立一個空資料夾（例如 <code class="bg-slate-200/70 px-1 rounded">mvdis-map</code>），將本檔案存為 <code class="bg-slate-200/70 px-1 rounded">index.html</code> 放入其中。</li>
+            <li>登入 Cloudflare Dashboard → <strong>Workers &amp; Pages</strong> → <strong>Create</strong> → <strong>Pages</strong> → <strong>Upload assets</strong>。</li>
+            <li>輸入專案名稱，直接拖曳資料夾上傳並點選 <strong>Deploy site</strong>，數秒內即可取得 <code class="bg-slate-200/70 px-1 rounded">*.pages.dev</code> 網址。</li>
+          </ol>
+        </div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+          <div class="font-bold text-slate-900">方式二：透過 Wrangler CLI 一鍵部署</div>
+          <div class="relative">
+            <pre id="wrangler-cmd" class="bg-slate-900 text-emerald-300 rounded-lg p-3 overflow-x-auto text-[11px] font-mono">npx wrangler pages deploy ./mvdis-map --project-name=taiwan-mvdis-map</pre>
+            <button id="btn-copy-cmd" type="button" class="absolute top-2 right-2 px-2 py-1 text-[11px] font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors">複製</button>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1.5">
+          <div class="font-bold text-slate-900">方式三：連結 GitHub 儲存庫</div>
+          <p>將 <code class="bg-slate-200/70 px-1 rounded">index.html</code> 推送至 GitHub 根目錄，在 Cloudflare Pages 連結該 Repo，<strong>Build command 留空</strong>、<strong>Build output directory 填 <code class="bg-slate-200/70 px-1 rounded">/</code></strong> 即可自動部署。</p>
+        </div>
+      </div>
+      <div class="px-5 py-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <button type="button" data-close-modal="modal-deploy" class="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg">了解</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 translate-y-20 opacity-0 transition-all duration-200 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 pointer-events-none">
+    <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+    <span id="toast-msg"></span>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. Grounded Official Data (Traffic Bureau / 交通部公路局各區監理所站)
+    // =========================================================================
+    const MVDIS_BOOKING_URL = 'https://www.mvdis.gov.tw/m3-emv-trn/exm/locations';
+
+    const REGION_LABELS = {
+      all: '全臺',
+      north: '北部',
+      central: '中部',
+      south: '南部',
+      east: '東部',
+      islands: '離島'
+    };
+
+    const DAY_LABELS = {
+      '1': '週一',
+      '2': '週二',
+      '3': '週三',
+      '4': '週四',
+      '5': '週五'
+    };
+
+    // Each station contains verified weekday availability for both seasons (off / peak)
+    // and both exam types (first = 初考領含120分鐘講習, retake = 重考/持輕機免講習)
+    const STATIONS = [
+      {
+        id: 'shilin',
+        name: '士林監理站',
+        office: '臺北市區監理所',
+        county: '臺北市',
+        region: 'north',
+        address: '臺北市士林區承德路五段80號',
+        phone: '(02)2831-4155 #202、203',
+        sourceUrl: 'https://tpcmv.thb.gov.tw/cp.aspx?n=9434',
+        note: '每週三停止路考與練習；組別1限免講習/重考生，組別2限初考生。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 4], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 4], periods: ['am', 'pm'] },
+            checkin: '上午 09:10–09:30（3樓講習教室）',
+            lecture: '上午 2小時初考講習',
+            written: '下午 13:30 開始',
+            road: '下午 14:00 開始'
+          },
+          retake: {
+            off: { days: [1, 2, 4], periods: ['am'] },
+            peak: { days: [1, 2, 4], periods: ['am'] },
+            checkin: '上午 09:00–10:30 前',
+            lecture: '免講習（組別1）',
+            written: '上午 09:00–12:00',
+            road: '上午 09:00–12:00'
+          }
+        }
+      },
+      {
+        id: 'keelung',
+        name: '基隆監理站',
+        office: '臺北市區監理所',
+        county: '基隆市',
+        region: 'north',
+        address: '基隆市七堵區實踐路296號',
+        phone: '(02)2451-5311 #201–203',
+        sourceUrl: 'https://tpcmv.thb.gov.tw/cp.aspx?n=9434',
+        note: '初考生固定於週二、週三上午；重考/免講習於週三、週五下午。',
+        schedule: {
+          first: {
+            off: { days: [2, 3], periods: ['am'] },
+            peak: { days: [2, 3], periods: ['am'] },
+            checkin: '上午 08:20–08:30',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30',
+            road: '筆試結束後立即開始'
+          },
+          retake: {
+            off: { days: [3, 5], periods: ['pm'] },
+            peak: { days: [3, 5], periods: ['pm'] },
+            checkin: '下午 13:30',
+            lecture: '本場次無初考講習',
+            written: '下午 13:30',
+            road: '下午 14:00'
+          }
+        }
+      },
+      {
+        id: 'shulin',
+        name: '臺北區監理所（樹林）',
+        office: '臺北區監理所',
+        county: '新北市',
+        region: 'north',
+        address: '新北市樹林區中正路248巷7號',
+        phone: '(02)2688-4366 #213、205',
+        sourceUrl: 'https://tpmvo.thb.gov.tw/cp.aspx?n=1101',
+        note: '每週三全種類汽機車筆路試停考；重考生統一於下午場報考。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:30–09:30',
+            lecture: '上午 09:30–11:30',
+            written: '下午 13:00–14:30（D棟）',
+            road: '下午 13:30–14:30'
+          },
+          retake: {
+            off: { days: [1, 2, 4, 5], periods: ['pm'] },
+            peak: { days: [1, 2, 4, 5], periods: ['pm'] },
+            checkin: '下午 13:00–13:40（D棟）',
+            lecture: '免講習',
+            written: '下午 13:00–14:30',
+            road: '下午 13:30–14:30'
+          }
+        }
+      },
+      {
+        id: 'banqiao',
+        name: '板橋監理站（中和）',
+        office: '臺北區監理所',
+        county: '新北市',
+        region: 'north',
+        address: '新北市中和區中山路三段116號',
+        phone: '(02)2222-7835 #201、203、205',
+        sourceUrl: 'https://tpmvo.thb.gov.tw/cp.aspx?n=1101',
+        note: '每週二、週五停止辦理機車講習與考照；下午筆路試僅供當日上午完成講習之新考生。',
+        schedule: {
+          first: {
+            off: { days: [1, 3, 4], periods: ['am', 'pm'] },
+            peak: { days: [1, 3, 4], periods: ['am', 'pm'] },
+            checkin: '上午 09:00–09:20',
+            lecture: '上午 09:30–11:30',
+            written: '下午 13:00–15:00',
+            road: '下午 13:00–16:00'
+          },
+          retake: {
+            off: { days: [1, 3, 4], periods: ['am'] },
+            peak: { days: [1, 3, 4], periods: ['am'] },
+            checkin: '上午 08:30–10:00',
+            lecture: '免講習',
+            written: '上午 08:30–10:30',
+            road: '上午 08:30–11:00'
+          }
+        }
+      },
+      {
+        id: 'luzhou',
+        name: '蘆洲監理站',
+        office: '臺北區監理所',
+        county: '新北市',
+        region: 'north',
+        address: '新北市蘆洲區中山二路163號',
+        phone: '(02)2288-6883 #201–203',
+        sourceUrl: 'https://tpmvo.thb.gov.tw/cp.aspx?n=1101',
+        note: '每週一、週四無開課及考照；下午筆路試僅供當日上午完成講習之初考生。',
+        schedule: {
+          first: {
+            off: { days: [2, 3, 5], periods: ['am', 'pm'] },
+            peak: { days: [2, 3, 5], periods: ['am', 'pm'] },
+            checkin: '上午 09:00–09:30',
+            lecture: '上午 09:30–11:30',
+            written: '下午 13:00–14:00',
+            road: '下午 13:00–14:30'
+          },
+          retake: {
+            off: { days: [2, 3, 5], periods: ['am'] },
+            peak: { days: [2, 3, 5], periods: ['am'] },
+            checkin: '上午 08:30–09:30（路考至10:00）',
+            lecture: '免講習',
+            written: '上午 08:30–09:30',
+            road: '上午 08:30–10:00'
+          }
+        }
+      },
+      {
+        id: 'taoyuan',
+        name: '桃園監理站',
+        office: '新竹區監理所',
+        county: '桃園市',
+        region: 'north',
+        address: '桃園市桃園區介壽路416號',
+        phone: '(03)366-4222',
+        sourceUrl: 'https://hmv.thb.gov.tw/cp.aspx?n=1588',
+        note: '上午場限初次報考者；下午場（週一、三、五）限重考、吊註銷及持輕機駕照者。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–08:30',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30',
+            road: '筆試及格後接續路考'
+          },
+          retake: {
+            off: { days: [1, 3, 5], periods: ['pm'] },
+            peak: { days: [1, 3, 5], periods: ['pm'] },
+            checkin: '下午 13:00–13:30',
+            lecture: '免講習',
+            written: '下午 13:30',
+            road: '下午 14:00–16:30'
+          }
+        }
+      },
+      {
+        id: 'zhongli',
+        name: '中壢監理站',
+        office: '新竹區監理所',
+        county: '桃園市',
+        region: 'north',
+        address: '桃園市中壢區延平路394號',
+        phone: '(03)425-3990',
+        sourceUrl: 'https://hmv.thb.gov.tw/cp.aspx?n=1588',
+        note: '初考生與重考生均於上午至三樓報到繳費，逾時視為棄權。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 09:00–09:30（三樓）',
+            lecture: '上午 09:30–11:30',
+            written: '下午 13:20',
+            road: '筆試及格後路考'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:30–10:30（三樓）',
+            lecture: '免講習',
+            written: '上午 09:20–11:00',
+            road: '上午 08:50–11:30'
+          }
+        }
+      },
+      {
+        id: 'hsinchu-county',
+        name: '新竹區監理所（新埔）',
+        office: '新竹區監理所',
+        county: '新竹縣',
+        region: 'north',
+        address: '新竹縣新埔鎮文德路三段58號',
+        phone: '(03)589-2051',
+        sourceUrl: 'https://hmv.thb.gov.tw/cp.aspx?n=1588',
+        note: '機車初考與重考皆安排於平日下午時段；講習報到逾10分鐘即取消資格。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['pm'] },
+            checkin: '下午 13:00–13:10',
+            lecture: '下午 13:10–15:10',
+            written: '下午 15:10–15:40',
+            road: '下午 15:40 至結束'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['pm'] },
+            checkin: '下午 13:00–13:10',
+            lecture: '免講習',
+            written: '下午 13:10–13:40',
+            road: '下午 13:40 至結束'
+          }
+        }
+      },
+      {
+        id: 'hsinchu-city',
+        name: '新竹市監理站',
+        office: '新竹區監理所',
+        county: '新竹市',
+        region: 'north',
+        address: '新竹市東區自由路10號',
+        phone: '(03)532-7101',
+        sourceUrl: 'https://hmv.thb.gov.tw/cp.aspx?n=1588',
+        note: '初考生上午講習與筆試、下午路考；重考生於下午報到考試。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:00–08:30',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30',
+            road: '下午 13:00'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['pm'] },
+            checkin: '下午 13:00–13:30（路考至14:00）',
+            lecture: '免講習',
+            written: '下午 13:30',
+            road: '下午 13:00 起'
+          }
+        }
+      },
+      {
+        id: 'miaoli',
+        name: '苗栗監理站',
+        office: '新竹區監理所',
+        county: '苗栗縣',
+        region: 'central',
+        address: '苗栗縣苗栗市福麗里福麗98號',
+        phone: '(037)331-806',
+        sourceUrl: 'https://hmv.thb.gov.tw/cp.aspx?n=1588',
+        note: '淡季（3–5、10–12月）為週一、三、四；旺季（1–2、6–9月）為週一至五。',
+        schedule: {
+          first: {
+            off: { days: [1, 3, 4], periods: ['pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['pm'] },
+            checkin: '下午 13:00–13:30',
+            lecture: '下午 13:30–15:30',
+            written: '下午 15:30',
+            road: '下午 16:00'
+          },
+          retake: {
+            off: { days: [1, 3, 4], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 09:30–10:00（路考 10:00–10:30）',
+            lecture: '免講習',
+            written: '上午 10:00',
+            road: '上午 10:30'
+          }
+        }
+      },
+      {
+        id: 'taichung-city',
+        name: '臺中市監理站',
+        office: '臺中區監理所',
+        county: '臺中市',
+        region: 'central',
+        address: '臺中市北區北屯路77號',
+        phone: '(04)2234-1103',
+        sourceUrl: 'https://tmv.thb.gov.tw/cp.aspx?n=2656',
+        note: '淡季停辦週一/四下午、週五上午及週二全天；旺季（7–8月）增開週一/四下午及週二上午。',
+        schedule: {
+          first: {
+            off: { days: [1, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am'], 3: ['am', 'pm'], 4: ['am'], 5: ['pm'] } },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am', 'pm'], 2: ['am'], 3: ['am', 'pm'], 4: ['am', 'pm'], 5: ['pm'] } },
+            checkin: '上午場受理至 11:00 ／ 下午場至 16:00',
+            lecture: '第1場 08:00–10:00 ／ 第2場 13:00–15:00',
+            written: '08:20–11:50 ／ 13:10–16:40',
+            road: '08:20–11:50 ／ 13:10–16:40'
+          },
+          retake: {
+            off: { days: [1, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am'], 3: ['am', 'pm'], 4: ['am'], 5: ['pm'] } },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am', 'pm'], 2: ['am'], 3: ['am', 'pm'], 4: ['am', 'pm'], 5: ['pm'] } },
+            checkin: '上午場受理至 11:00 ／ 下午場至 16:00',
+            lecture: '免講習',
+            written: '08:20–11:50 ／ 13:10–16:40',
+            road: '08:20–11:50 ／ 13:10–16:40'
+          }
+        }
+      },
+      {
+        id: 'changhua',
+        name: '彰化監理站',
+        office: '臺中區監理所',
+        county: '彰化縣',
+        region: 'central',
+        address: '彰化縣花壇鄉中山路二段457號',
+        phone: '(04)786-7161',
+        sourceUrl: 'https://tmv.thb.gov.tw/cp.aspx?n=11311',
+        note: '上午場不分淡旺季均開放；下午場僅於 7、8 月暑假旺季加開。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:00–08:20 ／ 旺季下午 13:00–13:10',
+            lecture: '上午 08:20–10:20 ／ 旺季下午 13:10–15:10',
+            written: '上午 08:30–10:50 ／ 旺季下午 13:00–15:50',
+            road: '上午 09:00、10:40 ／ 旺季下午 14:00、15:30'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:00–08:20 ／ 旺季下午 13:00–13:10',
+            lecture: '免講習',
+            written: '上午 08:30–10:50 ／ 旺季下午 13:00–15:50',
+            road: '上午 09:00、10:40 ／ 旺季下午 14:00、15:30'
+          }
+        }
+      },
+      {
+        id: 'nantou',
+        name: '南投監理站',
+        office: '臺中區監理所',
+        county: '南投縣',
+        region: 'central',
+        address: '南投縣南投市中興路（臺中區監理所轄管）',
+        phone: '(049)235-0923',
+        sourceUrl: 'https://tmv.thb.gov.tw/cp.aspx?n=2547',
+        note: '淡季（1–6、9–12月）僅每週二至四上午開放；7–8月暑假旺季週一至五上午皆開放。',
+        schedule: {
+          first: {
+            off: { days: [2, 3, 4], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:10 前（二樓講習教室）',
+            lecture: '上午 08:10–10:10',
+            written: '上午 10:30 前完成筆試報名',
+            road: '上午 09:00、11:00'
+          },
+          retake: {
+            off: { days: [2, 3, 4], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:10–10:30 前',
+            lecture: '免講習',
+            written: '上午 10:30 前',
+            road: '上午 09:00、11:00'
+          }
+        }
+      },
+      {
+        id: 'puli',
+        name: '埔里監理分站',
+        office: '臺中區監理所',
+        county: '南投縣',
+        region: 'central',
+        address: '南投縣埔里鎮（南投監理站轄管）',
+        phone: '(04)2691-2011（臺中區監理所）',
+        sourceUrl: 'https://tmv.thb.gov.tw/cp.aspx?n=2373',
+        note: '每星期一、五下午提供機車考照業務（含初考講習、筆試、路考）。',
+        schedule: {
+          first: {
+            off: { days: [1, 5], periods: ['pm'] },
+            peak: { days: [1, 5], periods: ['pm'] },
+            checkin: '下午場依預約時段報到',
+            lecture: '下午初考領安全講習（120分鐘）',
+            written: '講習後進行筆試',
+            road: '筆試合格後進行路考'
+          },
+          retake: {
+            off: { days: [1, 5], periods: ['pm'] },
+            peak: { days: [1, 5], periods: ['pm'] },
+            checkin: '下午場依預約時段報到',
+            lecture: '免講習',
+            written: '下午筆試',
+            road: '下午路考'
+          }
+        }
+      },
+      {
+        id: 'yunlin',
+        name: '雲林監理站',
+        office: '嘉義區監理所',
+        county: '雲林縣',
+        region: 'south',
+        address: '雲林縣斗六市雲林路二段411號',
+        phone: '(05)533-0150',
+        sourceUrl: 'https://cyi2.thb.gov.tw/page?node=0fd8bab2-8b16-4a59-bdc7-731e770bc646',
+        note: '週一至五上午皆有場次；下午場開放週一、二、四、五（週三下午無場次）。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am', 'pm'], 2: ['am', 'pm'], 3: ['am'], 4: ['am', 'pm'], 5: ['am', 'pm'] } },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am', 'pm'], 2: ['am', 'pm'], 3: ['am'], 4: ['am', 'pm'], 5: ['am', 'pm'] } },
+            checkin: '上午 08:00–08:30 ／ 下午 13:00–13:30（2樓）',
+            lecture: '上午 08:30–10:30 ／ 下午 13:30–15:30',
+            written: '上午 10:30–11:20 ／ 下午 15:30–16:20',
+            road: '上午 11:00–11:45 ／ 下午 16:00–16:45'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am', 'pm'], 2: ['am', 'pm'], 3: ['am'], 4: ['am', 'pm'], 5: ['am', 'pm'] } },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'], dayPeriods: { 1: ['am', 'pm'], 2: ['am', 'pm'], 3: ['am'], 4: ['am', 'pm'], 5: ['am', 'pm'] } },
+            checkin: '上午 08:00–08:30 ／ 下午 13:00–13:30（2樓）',
+            lecture: '免講習',
+            written: '上午 10:30–11:20 ／ 下午 15:30–16:20',
+            road: '上午 11:00–11:45 ／ 下午 16:00–16:45'
+          }
+        }
+      },
+      {
+        id: 'chiayi-city',
+        name: '嘉義市監理站',
+        office: '嘉義區監理所',
+        county: '嘉義市',
+        alsoCovers: ['嘉義縣'],
+        region: 'south',
+        address: '嘉義市東區保建街89號',
+        phone: '(05)277-0150',
+        sourceUrl: 'https://cyi2.thb.gov.tw/cp.aspx?n=1759',
+        note: '專辦普通重型及輕型機車考照；嘉義縣民眾亦可就近至本站或朴子嘉義區監理所報考。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–08:30（講習報到 08:15–08:30）',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30–11:00',
+            road: '上午 10:30–11:40（12:00發照）'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 09:00–10:30',
+            lecture: '免講習',
+            written: '上午 10:30–11:00',
+            road: '上午 10:30–11:40'
+          }
+        }
+      },
+      {
+        id: 'tainan',
+        name: '臺南監理站',
+        office: '嘉義區監理所',
+        county: '臺南市',
+        region: 'south',
+        address: '臺南市東區崇德路1號',
+        phone: '(06)269-6678',
+        sourceUrl: 'https://cyi2.thb.gov.tw/cp.aspx?n=2127',
+        note: '週一至週五上下午均提供完整考照服務，並不定時於假日門市上午加開。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:00–08:30 ／ 下午 13:00–13:30',
+            lecture: '上午 08:30–10:30 ／ 下午 13:30–15:30',
+            written: '上午 09:10–12:00 ／ 下午 14:10–17:00',
+            road: '上午 09:00–12:00 ／ 下午 14:00–17:00'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:00–08:30 ／ 下午 13:00–13:30',
+            lecture: '免講習',
+            written: '上午 09:10–12:00 ／ 下午 14:10–17:00',
+            road: '上午 09:00–12:00 ／ 下午 14:00–17:00'
+          }
+        }
+      },
+      {
+        id: 'madou',
+        name: '麻豆監理站',
+        office: '嘉義區監理所',
+        county: '臺南市',
+        region: 'south',
+        address: '臺南市麻豆區新生北路551號',
+        phone: '(06)572-3181',
+        sourceUrl: 'https://cyi2.thb.gov.tw/cp.aspx?n=2043',
+        note: '每週一、二、三、五辦理機車考照（週四無場次）；須先至2樓報名處報到。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:00–08:50（2樓）',
+            lecture: '上午 09:00–11:00',
+            written: '上午 11:00–11:30',
+            road: '下午 13:30–17:00'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 5], periods: ['am'] },
+            checkin: '上午 08:00–08:50（2樓）',
+            lecture: '免講習',
+            written: '上午 09:00–09:30',
+            road: '上午 09:30–12:00'
+          }
+        }
+      },
+      {
+        id: 'kaohsiung-city',
+        name: '高雄市區監理所（楠梓）',
+        office: '高雄市區監理所',
+        county: '高雄市',
+        region: 'south',
+        address: '高雄市楠梓區德民路71號',
+        phone: '(07)361-3161 #203–205',
+        sourceUrl: 'https://khcmv.thb.gov.tw/cp.aspx?n=3299',
+        note: '淡季（3–6、10–12月）開放週一、四、五；旺季（1–2、7–9月）每一工作日開放。',
+        schedule: {
+          first: {
+            off: { days: [1, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 09:30 前（組別32）',
+            lecture: '上午 09:30 起（120分鐘）',
+            written: '下午 13:00',
+            road: '下午 14:00'
+          },
+          retake: {
+            off: { days: [1, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:30 前（組別31）',
+            lecture: '免講習',
+            written: '上午 08:30',
+            road: '上午 09:30'
+          }
+        }
+      },
+      {
+        id: 'lingya',
+        name: '苓雅監理站',
+        office: '高雄市區監理所',
+        county: '高雄市',
+        region: 'south',
+        address: '高雄市三民區建國一路454號',
+        phone: '(07)225-7812 #201–203',
+        sourceUrl: 'https://khcmv.thb.gov.tw/cp.aspx?n=3299',
+        note: '組別51限重考/免講習專用；組別52供初考生及所有考生預約。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 09:30 前（組別52）',
+            lecture: '上午 09:30–11:30',
+            written: '下午 13:30–14:30',
+            road: '下午 14:30–15:30'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:30 前（組別51）',
+            lecture: '免講習',
+            written: '上午 08:30–09:30',
+            road: '上午 09:30–10:30'
+          }
+        }
+      },
+      {
+        id: 'fengshan',
+        name: '高雄區監理所（鳳山）',
+        office: '高雄區監理所',
+        county: '高雄市',
+        region: 'south',
+        address: '高雄市鳳山區武營路361號',
+        phone: '(07)771-1101 #201、209',
+        sourceUrl: 'https://komv.thb.gov.tw/cp.aspx?n=3579',
+        note: '初考上午講習、下午筆路試；重考/免講習於上午完成筆路試。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:30–09:30',
+            lecture: '上午 09:30–11:30',
+            written: '下午 13:30',
+            road: '下午 14:00'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–08:30',
+            lecture: '免講習',
+            written: '上午 09:00',
+            road: '上午 09:30'
+          }
+        }
+      },
+      {
+        id: 'qishan',
+        name: '旗山監理站',
+        office: '高雄市區監理所',
+        county: '高雄市',
+        region: 'south',
+        address: '高雄市旗山區旗文路123-1號',
+        phone: '(07)661-3711 #201、202、205',
+        sourceUrl: 'https://khcmv.thb.gov.tw/cp.aspx?n=3299',
+        note: '工作日均開放上午場；已完成講習者可於 09:30 前報到。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–08:30',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30',
+            road: '上午 11:00'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 09:30 前',
+            lecture: '免講習',
+            written: '上午 10:30',
+            road: '上午 11:00'
+          }
+        }
+      },
+      {
+        id: 'pingtung',
+        name: '屏東監理站',
+        office: '高雄區監理所',
+        county: '屏東縣',
+        region: 'south',
+        address: '屏東縣屏東市（高雄區監理所轄管）',
+        phone: '(07)771-1101（高雄區監理所）',
+        sourceUrl: 'https://komv.thb.gov.tw/cp.aspx?n=3579',
+        note: '週一至週五開放；初考生上午講習、下午筆路試，補考/免講習於上午應考。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am', 'pm'] },
+            checkin: '上午 08:30–09:30',
+            lecture: '上午 09:30–11:30',
+            written: '下午 13:00 起',
+            road: '下午 14:00 起'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 09:00–09:30',
+            lecture: '免講習',
+            written: '上午 09:30 起',
+            road: '上午 10:00 起'
+          }
+        }
+      },
+      {
+        id: 'hengchun',
+        name: '恆春監理分站',
+        office: '高雄區監理所',
+        county: '屏東縣',
+        region: 'south',
+        address: '屏東縣恆春鎮（高雄區監理所轄管）',
+        phone: '(07)771-1101（高雄區監理所）',
+        sourceUrl: 'https://komv.thb.gov.tw/cp.aspx?n=3579',
+        note: '固定每週五上午辦理機車考照，須事先網路預約。',
+        schedule: {
+          first: {
+            off: { days: [5], periods: ['am'] },
+            peak: { days: [5], periods: ['am'] },
+            checkin: '上午 08:00–09:00',
+            lecture: '上午 09:00–11:00',
+            written: '上午 11:00',
+            road: '筆試合格後接續路考'
+          },
+          retake: {
+            off: { days: [5], periods: ['am'] },
+            peak: { days: [5], periods: ['am'] },
+            checkin: '上午 08:00–08:30',
+            lecture: '免講習',
+            written: '上午 08:30 開始',
+            road: '筆試結束後一併辦理'
+          }
+        }
+      },
+      {
+        id: 'yilan',
+        name: '宜蘭監理站',
+        office: '臺北區監理所',
+        county: '宜蘭縣',
+        region: 'east',
+        address: '宜蘭縣五結鄉中正路二段9號',
+        phone: '(03)965-8461 #201–207',
+        sourceUrl: 'https://tpmvo.thb.gov.tw/cp.aspx?n=1101',
+        note: '每週一、三、五上午辦理機車考照（週二、週四停止機車考照與講習）。',
+        schedule: {
+          first: {
+            off: { days: [1, 3, 5], periods: ['am'] },
+            peak: { days: [1, 3, 5], periods: ['am'] },
+            checkin: '上午 08:10–08:40',
+            lecture: '上午 08:40–10:40',
+            written: '上午 08:40–11:00',
+            road: '上午 09:30、11:00'
+          },
+          retake: {
+            off: { days: [1, 3, 5], periods: ['am'] },
+            peak: { days: [1, 3, 5], periods: ['am'] },
+            checkin: '上午 08:10–09:00',
+            lecture: '免講習',
+            written: '上午 08:40–11:00',
+            road: '上午 09:30、11:00'
+          }
+        }
+      },
+      {
+        id: 'hualien',
+        name: '花蓮監理站',
+        office: '臺北區監理所',
+        county: '花蓮縣',
+        region: 'east',
+        address: '花蓮縣吉安鄉中正路二段152號',
+        phone: '(03)852-3166 #201–204、206',
+        sourceUrl: 'https://tpmvo.thb.gov.tw/cp.aspx?n=1101',
+        note: '週一至週五上午辦理機車考照，下午無受理機車考照報名。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:10–08:30',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30–11:00',
+            road: '上午 11:00–12:00'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:30–10:00',
+            lecture: '免講習',
+            written: '上午 10:30–11:00',
+            road: '上午 11:00–12:00'
+          }
+        }
+      },
+      {
+        id: 'yuli',
+        name: '玉里監理分站',
+        office: '臺北區監理所',
+        county: '花蓮縣',
+        region: 'east',
+        address: '花蓮縣玉里鎮中華路427號',
+        phone: '(03)888-3161',
+        sourceUrl: 'https://tpmvo.thb.gov.tw/cp.aspx?n=1101',
+        note: '淡季僅每週一上午報考；旺季（7、8、9月）開放週一、三、四、五上午。',
+        schedule: {
+          first: {
+            off: { days: [1], periods: ['am'] },
+            peak: { days: [1, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–09:00',
+            lecture: '上午 09:00–11:00',
+            written: '上午 11:00–11:30',
+            road: '上午 11:30–12:00'
+          },
+          retake: {
+            off: { days: [1], periods: ['am'] },
+            peak: { days: [1, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–09:00',
+            lecture: '免講習',
+            written: '上午 11:00–11:30',
+            road: '上午 11:30–12:00'
+          }
+        }
+      },
+      {
+        id: 'taitung',
+        name: '臺東監理站',
+        office: '高雄區監理所',
+        county: '臺東縣',
+        region: 'east',
+        address: '臺東縣臺東市（高雄區監理所轄管）',
+        phone: '(07)771-1101（高雄區監理所）',
+        sourceUrl: 'https://komv.thb.gov.tw/cp.aspx?n=3579',
+        note: '上班日週一至週五上午辦理機車考照，一律先網路預約。',
+        schedule: {
+          first: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–08:30',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30',
+            road: '上午 11:00'
+          },
+          retake: {
+            off: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            peak: { days: [1, 2, 3, 4, 5], periods: ['am'] },
+            checkin: '上午 08:00–08:30',
+            lecture: '免講習',
+            written: '上午 10:30',
+            road: '上午 11:00'
+          }
+        }
+      },
+      {
+        id: 'penghu',
+        name: '澎湖監理站',
+        office: '高雄區監理所',
+        county: '澎湖縣',
+        region: 'islands',
+        address: '澎湖縣（高雄區監理所轄管）',
+        phone: '(07)771-1101（高雄區監理所）',
+        sourceUrl: 'https://komv.thb.gov.tw/cp.aspx?n=3579',
+        note: '每週二、四、五上午有場次，須於當日 08:30 前至窗口完成報到。',
+        schedule: {
+          first: {
+            off: { days: [2, 4, 5], periods: ['am'] },
+            peak: { days: [2, 4, 5], periods: ['am'] },
+            checkin: '上午 08:30 前',
+            lecture: '上午 08:30–10:30',
+            written: '上午 10:30',
+            road: '上午 11:00–11:40'
+          },
+          retake: {
+            off: { days: [2, 4, 5], periods: ['am'] },
+            peak: { days: [2, 4, 5], periods: ['am'] },
+            checkin: '上午 08:30 前',
+            lecture: '免講習',
+            written: '上午 09:00',
+            road: '上午 09:00–09:40'
+          }
+        }
+      },
+      {
+        id: 'kinmen',
+        name: '金門監理站',
+        office: '臺北市區監理所',
+        county: '金門縣',
+        region: 'islands',
+        address: '金門縣金湖鎮黃海路六之一號',
+        phone: '(082)332-407 #19',
+        sourceUrl: 'https://tpcmv.thb.gov.tw/cp.aspx?n=9434',
+        note: '每週五上午辦理機車駕照考驗；建議於考驗日前2日完成網路預約。',
+        schedule: {
+          first: {
+            off: { days: [5], periods: ['am'] },
+            peak: { days: [5], periods: ['am'] },
+            checkin: '上午 08:30 前',
+            lecture: '上午 08:30 起初考領講習',
+            written: '講習後隨即筆試',
+            road: '筆試合格後路考'
+          },
+          retake: {
+            off: { days: [5], periods: ['am'] },
+            peak: { days: [5], periods: ['am'] },
+            checkin: '上午 08:30–10:30',
+            lecture: '免講習',
+            written: '報名截止後隨即筆試',
+            road: '筆試合格後路考'
+          }
+        }
+      },
+      {
+        id: 'lienchiang',
+        name: '連江監理站',
+        office: '臺北市區監理所',
+        county: '連江縣',
+        region: 'islands',
+        address: '連江縣南竿鄉津沙村155號',
+        phone: '(0836)22694',
+        sourceUrl: 'https://tpcmv.thb.gov.tw/cp.aspx?n=9434',
+        note: '每週一中午起辦理機車考照（週六、日及國定假日暫停受理）。',
+        schedule: {
+          first: {
+            off: { days: [1], periods: ['pm'] },
+            peak: { days: [1], periods: ['pm'] },
+            checkin: '中午 12:00–12:30',
+            lecture: '下午 12:30–14:30',
+            written: '下午 14:30–15:00',
+            road: '下午 15:00–16:30'
+          },
+          retake: {
+            off: { days: [1], periods: ['pm'] },
+            peak: { days: [1], periods: ['pm'] },
+            checkin: '中午 12:00–12:30',
+            lecture: '免講習',
+            written: '下午 14:30–15:00',
+            road: '下午 15:00–16:30'
+          }
+        }
+      }
+    ];
+
+    // =========================================================================
+    // 2. Application State
+    // =========================================================================
+    const state = {
+      examType: 'first',      // 'first' | 'retake'
+            season: ([7, 8].includes(new Date().getMonth() + 1) ? 'peak' : 'off'),
+      selectedDay: 'all',     // 'all' | '1'..'5'
+      selectedPeriod: 'all',  // 'all' | 'am' | 'pm'
+      selectedRegion: 'all',  // 'all' | 'north' | 'central' | 'south' | 'east' | 'islands'
+      selectedCounty: null,   // null | '臺北市' | ...
+      searchQuery: '',
+      mapMode: 'geo',         // 'geo' | 'tile'
+      geoAvailable: false,
+      rangeMode: 'all',       // 'all' (full 30-day window) | '7' | '14' | 'single'
+      examDate: '',           // 'YYYY-MM-DD' when rangeMode === 'single'
+      windowStart: '',        // today + 3 days
+      windowEnd: '',          // today + 30 days
+      onlyAvailable: false,
+      quotaMode: 'demo',      // 'demo' | 'live' | 'custom'
+      quotaLoading: false,
+      quotaUpdatedAt: '',
+      quotas: {}              // { [stationId]: { dates: [{ date, weekday, am, pm, total, combined }] } }
+    };
+
+    function formatIsoDate(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function formatShortDate(iso) {
+      const parts = iso.split('-');
+      return `${Number(parts[1])}/${Number(parts[2])}`;
+    }
+
+    function getBookingWindow() {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 30);
+      const weekdays = [];
+      const cur = new Date(start);
+      while (cur <= end) {
+        const wd = cur.getDay();
+        if (wd >= 1 && wd <= 5) {
+          weekdays.push({ date: formatIsoDate(cur), weekday: wd });
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+      return {
+        start: formatIsoDate(start),
+        end: formatIsoDate(end),
+        weekdays
+      };
+    }
+
+    function getDefaultExamDate() {
+      const win = getBookingWindow();
+      return win.weekdays.length > 0 ? win.weekdays[0].date : win.start;
+    }
+
+    function getWeekdayFromDate(dateStr) {
+      if (!dateStr) return null;
+      const parts = dateStr.split('-').map(Number);
+      if (parts.length !== 3) return null;
+      return new Date(parts[0], parts[1] - 1, parts[2]).getDay();
+    }
+
+    function formatTimeNow() {
+      const now = new Date();
+      return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    }
+
+    function generateDemoQuotas() {
+      const win = getBookingWindow();
+      const result = {};
+      STATIONS.forEach((st, idx) => {
+        const slot = getStationSlot(st);
+        const dates = [];
+        win.weekdays.forEach((dayObj, dIdx) => {
+          if (!slot.days.includes(dayObj.weekday)) return;
+          const allowedPeriods = (slot.dayPeriods && slot.dayPeriods[dayObj.weekday])
+            ? slot.dayPeriods[dayObj.weekday]
+            : slot.periods;
+
+          // Earlier dates tend to be tighter/fuller, later dates have more open slots (realistic pattern)
+          const seed = (idx * 37 + dIdx * 19 + (state.examType === 'first' ? 11 : 23)) % 100;
+          const calcRemain = (offset) => {
+            const v = (seed + offset * 31) % 100;
+            if (dIdx < 4) {
+              if (v < 50) return 0;
+              if (v < 80) return 1 + (v % 8);
+              return 10 + (v % 15);
+            }
+            if (v < 22) return 0;
+            if (v < 52) return 1 + (v % 9);
+            return 10 + (v % 34);
+          };
+
+          const am = allowedPeriods.includes('am') ? calcRemain(1) : null;
+          const pm = allowedPeriods.includes('pm') ? calcRemain(2) : null;
+          const isSingleCombined = allowedPeriods.includes('am') && allowedPeriods.includes('pm')
+            && !['taichung-city', 'changhua', 'yunlin', 'tainan'].includes(st.id);
+
+          if (isSingleCombined) {
+            dates.push({ date: dayObj.date, weekday: dayObj.weekday, am, pm: null, total: am, combined: true });
+          } else {
+            dates.push({ date: dayObj.date, weekday: dayObj.weekday, am, pm, total: (am || 0) + (pm || 0), combined: false });
+          }
+        });
+        result[st.id] = { dates };
+      });
+      return result;
+    }
+
+    function isDeployedHost() {
+      try {
+        return (location.protocol === 'https:' || location.protocol === 'http:')
+          && Boolean(location.hostname)
+          && !location.hostname.includes('localhost')
+          && location.hostname !== '127.0.0.1';
+      } catch (e) {
+        return false;
+      }
+    }
+
+    async function fetchLiveQuotas(isManualClick = false) {
+      if (state.quotaLoading) return;
+      state.quotaLoading = true;
+      const win = getBookingWindow();
+      state.windowStart = win.start;
+      state.windowEnd = win.end;
+      updateQuotaBarUI();
+
+      if (!isDeployedHost()) {
+        state.quotas = generateDemoQuotas();
+        state.quotaMode = 'demo';
+        state.quotaUpdatedAt = formatTimeNow();
+        state.quotaLoading = false;
+        if (isManualClick) {
+          showToast('已更新未來 30 日全區間示範名額；部署至 Cloudflare Pages 後將自動即時連線查詢');
+        }
+        renderAll();
+        return;
+      }
+
+      try {
+        const url = `/api/quota?start=${encodeURIComponent(state.windowStart)}&end=${encodeURIComponent(state.windowEnd)}&examType=${encodeURIComponent(state.examType)}`;
+        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (!data || !data.stations) throw new Error('Invalid payload');
+        state.quotas = data.stations;
+        state.quotaMode = 'live';
+        state.quotaUpdatedAt = data.updatedAt || formatTimeNow();
+        if (isManualClick) showToast('已更新監理服務網全區間即時剩餘名額');
+      } catch (err) {
+        state.quotas = generateDemoQuotas();
+        state.quotaMode = 'demo';
+        state.quotaUpdatedAt = formatTimeNow();
+        if (isManualClick) {
+          showToast('尚未偵測到 /api/quota 後端函式，已切換全區間示範名額預覽');
+        }
+      } finally {
+        state.quotaLoading = false;
+        renderAll();
+      }
+    }
+
+    function getActiveRangeEnd() {
+      if (state.rangeMode === 'all') return state.windowEnd;
+      if (state.rangeMode === 'single') return state.examDate;
+      const daysLimit = Number(state.rangeMode);
+      const base = new Date();
+      base.setDate(base.getDate() + 3 + daysLimit - 1);
+      const limitStr = formatIsoDate(base);
+      return limitStr < state.windowEnd ? limitStr : state.windowEnd;
+    }
+
+    function getStationQuota(st) {
+      const q = state.quotas[st.id];
+      if (!q || !Array.isArray(q.dates)) {
+        return { dates: [], effectiveTotal: null, openDaysCount: 0, earliestDate: null };
+      }
+
+      const rangeEnd = getActiveRangeEnd();
+      const filteredDates = q.dates.filter((d) => {
+        if (state.rangeMode === 'single') {
+          if (d.date !== state.examDate) return false;
+        } else {
+          if (d.date < state.windowStart || d.date > rangeEnd) return false;
+        }
+        if (state.selectedDay !== 'all' && d.weekday !== Number(state.selectedDay)) return false;
+        return true;
+      }).map((d) => {
+        let remain = d.total;
+        if (state.selectedPeriod === 'am') {
+          remain = d.am;
+        } else if (state.selectedPeriod === 'pm') {
+          remain = d.combined ? d.am : d.pm;
+        }
+        return { ...d, remain };
+      }).filter((d) => d.remain !== null && d.remain !== undefined);
+
+      if (filteredDates.length === 0) {
+        return { dates: [], effectiveTotal: null, openDaysCount: 0, earliestDate: null };
+      }
+
+      let total = 0;
+      let openDaysCount = 0;
+      let earliestDate = null;
+      filteredDates.forEach((d) => {
+        total += d.remain;
+        if (d.remain > 0) {
+          openDaysCount += 1;
+          if (!earliestDate) earliestDate = d;
+        }
+      });
+
+      return { dates: filteredDates, effectiveTotal: total, openDaysCount, earliestDate };
+    }
+
+    const TILE_LAYOUT = [
+      { name: '連江縣', short: '連江', r: 0, c: 0, offshore: true },
+      { name: '基隆市', short: '基隆', r: 0, c: 4 },
+      { name: '臺北市', short: '臺北', r: 1, c: 3 },
+      { name: '新北市', short: '新北', r: 1, c: 4 },
+      { name: '金門縣', short: '金門', r: 2, c: 0, offshore: true },
+      { name: '桃園市', short: '桃園', r: 2, c: 2 },
+      { name: '新竹縣', short: '竹縣', r: 2, c: 3 },
+      { name: '宜蘭縣', short: '宜蘭', r: 2, c: 4 },
+      { name: '新竹市', short: '竹市', r: 3, c: 2 },
+      { name: '苗栗縣', short: '苗栗', r: 3, c: 3 },
+      { name: '臺中市', short: '臺中', r: 4, c: 2 },
+      { name: '南投縣', short: '南投', r: 4, c: 3 },
+      { name: '花蓮縣', short: '花蓮', r: 4, c: 4 },
+      { name: '澎湖縣', short: '澎湖', r: 5, c: 0, offshore: true },
+      { name: '彰化縣', short: '彰化', r: 5, c: 2 },
+      { name: '雲林縣', short: '雲林', r: 5, c: 3 },
+      { name: '嘉義市', short: '嘉市', r: 6, c: 2 },
+      { name: '嘉義縣', short: '嘉縣', r: 6, c: 3 },
+      { name: '臺東縣', short: '臺東', r: 6, c: 4 },
+      { name: '臺南市', short: '臺南', r: 7, c: 2 },
+      { name: '高雄市', short: '高雄', r: 7, c: 3 },
+      { name: '屏東縣', short: '屏東', r: 8, c: 3 }
+    ];
+
+    let mapGeoFeatures = null;
+    let mapRendered = false;
+    let countyPathSelection = null;
+    let countyBadgeGroup = null;
+    const countyCentroids = new Map();
+
+    // =========================================================================
+    // 3. Filtering Helpers
+    // =========================================================================
+    function getStationSlot(station) {
+      const modeData = station.schedule[state.examType];
+      const seasonData = modeData[state.season];
+      return { ...modeData, ...seasonData };
+    }
+
+    function stationMatchesTime(station) {
+      const slot = getStationSlot(station);
+      if (state.selectedDay !== 'all') {
+        const dayNum = Number(state.selectedDay);
+        if (!slot.days.includes(dayNum)) return false;
+        if (state.selectedPeriod !== 'all') {
+          const allowedPeriods = slot.dayPeriods ? (slot.dayPeriods[dayNum] || []) : slot.periods;
+          if (!allowedPeriods.includes(state.selectedPeriod)) return false;
+        }
+      } else if (state.selectedPeriod !== 'all') {
+        if (!slot.periods.includes(state.selectedPeriod)) return false;
+      }
+      return true;
+    }
+
+    function getMatchingStations(ignoreCounty = false) {
+      const q = state.searchQuery.trim().toLowerCase();
+      return STATIONS.filter((st) => {
+        if (!stationMatchesTime(st)) return false;
+        if (state.selectedRegion !== 'all' && st.region !== state.selectedRegion) return false;
+        if (!ignoreCounty && state.selectedCounty) {
+          const matchesDirect = st.county === state.selectedCounty;
+          const matchesCovered = Array.isArray(st.alsoCovers) && st.alsoCovers.includes(state.selectedCounty);
+          if (!matchesDirect && !matchesCovered) return false;
+        }
+        if (state.onlyAvailable) {
+          const quotaInfo = getStationQuota(st);
+          if (quotaInfo.effectiveTotal === null || quotaInfo.effectiveTotal <= 0) return false;
+        }
+        if (q) {
+          const hay = `${st.name} ${st.county} ${st.office} ${st.address} ${(st.alsoCovers || []).join(' ')}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function getCountyStats() {
+      // Computes map coloring stats ignoring selectedCounty so all counties stay visible on map
+      const matching = getMatchingStations(true);
+      const map = new Map();
+
+      matching.forEach((st) => {
+        const slot = getStationSlot(st);
+        const quotaInfo = getStationQuota(st);
+        const rem = typeof quotaInfo.effectiveTotal === 'number' ? quotaInfo.effectiveTotal : null;
+        const addForCounty = (countyName, isProxy) => {
+          if (!map.has(countyName)) {
+            map.set(countyName, { count: 0, totalDays: 0, remaining: 0, hasQuota: false, earliestDate: null, stations: [], isProxyOnly: true });
+          }
+          const entry = map.get(countyName);
+          entry.count += 1;
+          entry.totalDays += slot.days.length;
+          if (rem !== null) {
+            entry.remaining += rem;
+            entry.hasQuota = true;
+          }
+          if (quotaInfo.earliestDate) {
+            if (!entry.earliestDate || quotaInfo.earliestDate.date < entry.earliestDate.date) {
+              entry.earliestDate = quotaInfo.earliestDate;
+            }
+          }
+          entry.stations.push(st);
+          if (!isProxy) entry.isProxyOnly = false;
+        };
+        addForCounty(st.county, false);
+        if (Array.isArray(st.alsoCovers)) {
+          st.alsoCovers.forEach((c) => addForCounty(c, true));
+        }
+      });
+      return map;
+    }
+
+    function normalizeCountyName(props) {
+      const raw = (props && (props.COUNTYNAME || props.name || props.NAME || props.C_Name)) || '';
+      return String(raw).replace(/台/g, '臺').trim();
+    }
+
+    // =========================================================================
+    // 4. Simplified Taiwan Vector Map (D3 + TopoJSON)
+    // =========================================================================
+    async function loadTaiwanMap() {
+      const loadingEl = document.getElementById('map-loading');
+      const errorEl = document.getElementById('map-error');
+      loadingEl.classList.remove('hidden');
+      errorEl.classList.add('hidden');
+
+      try {
+        const res = await fetch('https://cdn.jsdelivr.net/gh/jason2506/Taiwan.TopoJSON@master/topojson/counties.json');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const topo = await res.json();
+        const objKey = Object.keys(topo.objects)[0];
+        const geo = topojson.feature(topo, topo.objects[objKey]);
+        mapGeoFeatures = geo.features;
+        state.geoAvailable = true;
+        renderMapGeometry();
+        loadingEl.classList.add('hidden');
+        updateMapVisibility();
+        updateMapColors();
+      } catch (err) {
+        state.geoAvailable = false;
+        state.mapMode = 'tile';
+        loadingEl.classList.add('hidden');
+        errorEl.classList.add('hidden');
+        renderControls();
+        updateMapVisibility();
+        renderTileMap();
+      }
+    }
+
+    function renderMapGeometry() {
+      const svg = d3.select('#taiwan-map');
+      svg.selectAll('*').remove();
+      countyCentroids.clear();
+
+      const offshoreNames = ['連江縣', '金門縣', '澎湖縣'];
+      const mainFeatures = mapGeoFeatures.filter((f) => !offshoreNames.includes(normalizeCountyName(f.properties)));
+
+      // Main island projection
+      const mainCollection = { type: 'FeatureCollection', features: mainFeatures };
+      const mainProjection = d3.geoMercator().fitExtent([[110, 20], [442, 540]], mainCollection);
+      const mainPath = d3.geoPath().projection(mainProjection);
+
+      const mainGroup = svg.append('g').attr('class', 'main-island-group');
+      mainGroup.selectAll('path')
+        .data(mainFeatures)
+        .enter()
+        .append('path')
+        .attr('d', mainPath)
+        .attr('class', 'county-path')
+        .attr('data-county', (d) => normalizeCountyName(d.properties))
+        .each(function (d) {
+          const name = normalizeCountyName(d.properties);
+          const c = mainPath.centroid(d);
+          if (!Number.isNaN(c[0]) && !Number.isNaN(c[1])) {
+            countyCentroids.set(name, c);
+          }
+        });
+
+      // Offshore island insets (clean boxes in upper-left)
+      const insets = [
+        { name: '連江縣', label: '連江 (馬祖)', x: 14, y: 20, w: 86, h: 74 },
+        { name: '金門縣', label: '金門縣', x: 14, y: 106, w: 86, h: 74 },
+        { name: '澎湖縣', label: '澎湖縣', x: 14, y: 192, w: 86, h: 86 }
+      ];
+
+      const insetGroup = svg.append('g').attr('class', 'insets-group');
+      insets.forEach((box) => {
+        const feat = mapGeoFeatures.find((f) => normalizeCountyName(f.properties) === box.name);
+        // Box frame
+        insetGroup.append('rect')
+          .attr('x', box.x)
+          .attr('y', box.y)
+          .attr('width', box.w)
+          .attr('height', box.h)
+          .attr('rx', 8)
+          .attr('fill', '#ffffff')
+          .attr('stroke', '#cbd5e1')
+          .attr('stroke-dasharray', '3 2');
+
+        insetGroup.append('text')
+          .attr('x', box.x + 6)
+          .attr('y', box.y + 14)
+          .attr('font-size', '10px')
+          .attr('font-weight', '600')
+          .attr('fill', '#64748b')
+          .text(box.label);
+
+        if (feat) {
+          const proj = d3.geoMercator().fitExtent(
+            [[box.x + 8, box.y + 20], [box.x + box.w - 8, box.y + box.h - 8]],
+            feat
+          );
+          const p = d3.geoPath().projection(proj);
+          insetGroup.append('path')
+            .datum(feat)
+            .attr('d', p)
+            .attr('class', 'county-path')
+            .attr('data-county', box.name);
+
+          countyCentroids.set(box.name, [box.x + box.w - 14, box.y + box.h - 14]);
+        }
+      });
+
+      // Badge overlay layer
+      countyBadgeGroup = svg.append('g').attr('class', 'badge-layer').style('pointer-events', 'none');
+
+      // Attach pointer events to all county paths
+      countyPathSelection = svg.selectAll('.county-path');
+      countyPathSelection
+        .on('mouseenter', function (event, d) {
+          const name = normalizeCountyName(d.properties);
+          showTooltip(event, name);
+        })
+        .on('mousemove', function (event, d) {
+          positionTooltip(event);
+        })
+        .on('mouseleave', function () {
+          hideTooltip();
+        })
+        .on('click', function (event, d) {
+          const name = normalizeCountyName(d.properties);
+          state.selectedCounty = state.selectedCounty === name ? null : name;
+          if (state.selectedCounty) {
+            state.selectedRegion = 'all';
+          }
+          renderAll();
+        });
+
+      mapRendered = true;
+    }
+
+    function updateMapColors() {
+      if (!mapRendered || !countyPathSelection) return;
+      const statsMap = getCountyStats();
+
+      countyPathSelection
+        .attr('fill', (d) => {
+          const name = normalizeCountyName(d.properties);
+          if (state.selectedCounty === name) return '#0284c7';
+          const info = statsMap.get(name);
+          if (!info || info.count === 0) return '#e2e8f0';
+          if (info.hasQuota) {
+            if (info.remaining === 0) return '#fb7185';
+            if (info.remaining < 10) return '#fbbf24';
+            return '#10b981';
+          }
+          return '#6ee7b7';
+        })
+        .attr('stroke', (d) => {
+          const name = normalizeCountyName(d.properties);
+          return state.selectedCounty === name ? '#0369a1' : '#ffffff';
+        })
+        .attr('stroke-width', (d) => {
+          const name = normalizeCountyName(d.properties);
+          return state.selectedCounty === name ? 2.2 : 1;
+        });
+
+      // Render station count badges on counties with matching stations
+      countyBadgeGroup.selectAll('*').remove();
+      statsMap.forEach((info, countyName) => {
+        if (info.isProxyOnly) return;
+        const pos = countyCentroids.get(countyName);
+        if (!pos) return;
+        const isSelected = state.selectedCounty === countyName;
+        const g = countyBadgeGroup.append('g').attr('transform', `translate(${pos[0]}, ${pos[1]})`);
+        g.append('circle')
+          .attr('r', 8.5)
+          .attr('fill', isSelected ? '#0f172a' : '#ffffff')
+          .attr('stroke', isSelected ? '#ffffff' : '#059669')
+          .attr('stroke-width', 1.5);
+        g.append('text')
+          .attr('text-anchor', 'middle')
+          .attr('dy', '0.35em')
+          .attr('font-size', '9px')
+          .attr('font-weight', '700')
+          .attr('fill', isSelected ? '#ffffff' : '#065f46')
+          .text(info.hasQuota ? info.remaining : info.count);
+      });
+    }
+
+    function showTooltip(event, countyName) {
+      const tooltip = document.getElementById('map-tooltip');
+      const titleEl = document.getElementById('tooltip-title');
+      const bodyEl = document.getElementById('tooltip-body');
+      const statsMap = getCountyStats();
+      const info = statsMap.get(countyName);
+
+      titleEl.textContent = countyName;
+      if (!info || info.count === 0) {
+        bodyEl.textContent = '目前篩選條件下無開放場次';
+      } else if (info.isProxyOnly) {
+        bodyEl.textContent = `就近可至：${info.stations.map((s) => s.name).join('、')}`;
+      } else {
+        const names = info.stations.map((s) => s.name).join('、');
+        const earliestText = info.earliestDate ? `｜最快 ${formatShortDate(info.earliestDate.date)}(${DAY_LABELS[String(info.earliestDate.weekday)].replace('週', '')})` : '｜區間內額滿';
+        const qText = info.hasQuota ? `｜區間尚餘 ${info.remaining} 名${earliestText}` : '';
+        bodyEl.textContent = `${info.count} 站（${names}）${qText}`;
+      }
+
+      tooltip.classList.remove('opacity-0');
+      tooltip.classList.add('opacity-100');
+      positionTooltip(event);
+    }
+
+    function positionTooltip(event) {
+      const wrapper = document.getElementById('map-wrapper');
+      const tooltip = document.getElementById('map-tooltip');
+      const rect = wrapper.getBoundingClientRect();
+      let x = event.clientX - rect.left + 14;
+      let y = event.clientY - rect.top - 10;
+      if (x + 210 > rect.width) x = Math.max(8, event.clientX - rect.left - 215);
+      if (y + 70 > rect.height) y = Math.max(8, rect.height - 75);
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+    }
+
+    function hideTooltip() {
+      const tooltip = document.getElementById('map-tooltip');
+      tooltip.classList.remove('opacity-100');
+      tooltip.classList.add('opacity-0');
+    }
+
+    function updateMapVisibility() {
+      const svgEl = document.getElementById('taiwan-map');
+      const tileEl = document.getElementById('taiwan-tile-map');
+      const errEl = document.getElementById('map-error');
+      if (state.mapMode === 'tile') {
+        svgEl.classList.add('hidden');
+        errEl.classList.add('hidden');
+        tileEl.classList.remove('hidden');
+      } else {
+        tileEl.classList.add('hidden');
+        if (state.geoAvailable) {
+          svgEl.classList.remove('hidden');
+          errEl.classList.add('hidden');
+        } else {
+          svgEl.classList.add('hidden');
+          errEl.classList.remove('hidden');
+        }
+      }
+    }
+
+    function renderTileMap() {
+      const container = document.getElementById('taiwan-tile-map');
+      if (!container) return;
+      const statsMap = getCountyStats();
+
+      const tilesHtml = TILE_LAYOUT.map((tile) => {
+        const info = statsMap.get(tile.name);
+        const isSelected = state.selectedCounty === tile.name;
+        let styleClass = 'bg-slate-200/80 text-slate-500 border-slate-300/70 hover:bg-slate-300/80';
+        let badgeHtml = '';
+
+        if (isSelected) {
+          styleClass = 'bg-sky-600 text-white border-sky-700 ring-2 ring-sky-300 shadow-sm';
+        } else if (info && info.count > 0) {
+          if (info.hasQuota) {
+            if (info.remaining === 0) {
+              styleClass = 'bg-rose-400 text-white border-rose-500 hover:bg-rose-500';
+            } else if (info.remaining < 10) {
+              styleClass = 'bg-amber-400 text-amber-950 border-amber-500 hover:bg-amber-500';
+            } else {
+              styleClass = 'bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600 shadow-xs';
+            }
+          } else {
+            styleClass = 'bg-emerald-200 text-emerald-950 border-emerald-400 hover:bg-emerald-300';
+          }
+        }
+
+        if (info && info.count > 0 && !info.isProxyOnly) {
+          const val = info.hasQuota ? info.remaining : info.count;
+          const badgeBg = isSelected
+            ? 'bg-slate-900 text-white'
+            : (info.hasQuota && info.remaining === 0 ? 'bg-white text-rose-600' : (info.hasQuota && info.remaining < 10 ? 'bg-white text-amber-700' : 'bg-white text-emerald-700'));
+          badgeHtml = `<span class="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center shadow-xs border border-slate-900/10 ${badgeBg}">${val}</span>`;
+        }
+
+        return `
+          <button
+            type="button"
+            data-tile-county="${tile.name}"
+            style="grid-row: ${tile.r + 1}; grid-column: ${tile.c + 1};"
+            class="tile-county-btn relative h-11 rounded-xl border text-xs font-bold flex flex-col items-center justify-center transition-all cursor-pointer ${styleClass}"
+            title="${tile.name}"
+          >
+            <span>${tile.short}</span>
+            ${badgeHtml}
+          </button>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="flex items-center justify-between text-[11px] text-slate-500 mb-3 px-1">
+          <span>離島</span>
+          <span class="text-slate-400">臺灣本島（北 → 南）</span>
+        </div>
+        <div class="relative grid grid-cols-5 gap-2 max-w-[340px] mx-auto" style="grid-template-rows: repeat(9, minmax(0, 1fr));">
+          <div style="grid-row: 1 / 10; grid-column: 2;" class="flex items-center justify-center pointer-events-none">
+            <div class="h-full border-l border-dashed border-slate-300"></div>
+          </div>
+          ${tilesHtml}
+        </div>
+      `;
+
+      container.querySelectorAll('.tile-county-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const name = btn.dataset.tileCounty;
+          state.selectedCounty = state.selectedCounty === name ? null : name;
+          if (state.selectedCounty) state.selectedRegion = 'all';
+          renderAll();
+        });
+        btn.addEventListener('mouseenter', (e) => showTooltip(e, btn.dataset.tileCounty));
+        btn.addEventListener('mousemove', (e) => positionTooltip(e));
+        btn.addEventListener('mouseleave', hideTooltip);
+      });
+    }
+
+    // =========================================================================
+    // 5. Render UI Controls, KPIs & Station Cards
+    // =========================================================================
+    function renderControls() {
+      // Exam type buttons
+      document.querySelectorAll('.exam-type-btn').forEach((btn) => {
+        const active = btn.dataset.examType === state.examType;
+        btn.className = `exam-type-btn py-1.5 px-2 text-xs font-semibold rounded-lg transition-all ${
+          active ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+        }`;
+      });
+
+      // Period buttons
+      document.querySelectorAll('.period-btn').forEach((btn) => {
+        const active = btn.dataset.period === state.selectedPeriod;
+        btn.className = `period-btn py-1.5 px-2 text-xs font-semibold rounded-lg transition-all ${
+          active ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+        }`;
+      });
+
+      // Day buttons
+      document.querySelectorAll('.day-btn').forEach((btn) => {
+        const active = btn.dataset.day === state.selectedDay;
+        btn.className = `day-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors ${
+          active
+            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+        }`;
+      });
+
+      // Region buttons
+      document.querySelectorAll('.region-btn').forEach((btn) => {
+        const active = btn.dataset.region === state.selectedRegion && !state.selectedCounty;
+        btn.className = `region-btn px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors ${
+          active
+            ? 'bg-slate-900 text-white border-slate-900'
+            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+        }`;
+      });
+
+      // Clear county pill
+      const clearCountyBtn = document.getElementById('btn-clear-county');
+      const selectedCountyLabel = document.getElementById('selected-county-label');
+      if (state.selectedCounty) {
+        clearCountyBtn.classList.remove('hidden');
+        selectedCountyLabel.textContent = state.selectedCounty;
+      } else {
+        clearCountyBtn.classList.add('hidden');
+      }
+
+      // Map mode buttons
+      document.querySelectorAll('.map-mode-btn').forEach((btn) => {
+        const active = btn.dataset.mapMode === state.mapMode;
+        btn.className = `map-mode-btn px-2 py-1 rounded-md transition-all ${
+          active ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+        }`;
+      });
+
+      // Clear search button
+      const clearSearchBtn = document.getElementById('btn-clear-search');
+      if (state.searchQuery.trim().length > 0) {
+        clearSearchBtn.classList.remove('hidden');
+      } else {
+        clearSearchBtn.classList.add('hidden');
+      }
+    }
+
+    function updateQuotaBarUI() {
+      const dot = document.getElementById('quota-dot');
+      const badge = document.getElementById('quota-mode-badge');
+      const updatedEl = document.getElementById('quota-updated-at');
+      const banner = document.getElementById('quota-info-banner');
+      const dateInput = document.getElementById('exam-date-input');
+      const wdLabel = document.getElementById('exam-date-weekday');
+      const rangeLabel = document.getElementById('range-window-label');
+      const singleWrap = document.getElementById('single-date-wrap');
+
+      if (dateInput) {
+        dateInput.min = state.windowStart;
+        dateInput.max = state.windowEnd;
+        if (dateInput.value !== state.examDate) dateInput.value = state.examDate;
+      }
+      const wd = getWeekdayFromDate(state.examDate);
+      const wdNames = ['週日（休）', '週一', '週二', '週三', '週四', '週五', '週六（休）'];
+      if (wdLabel) {
+        wdLabel.textContent = wd !== null ? wdNames[wd] : '';
+      }
+      if (singleWrap) {
+        if (state.rangeMode === 'single') singleWrap.classList.remove('hidden');
+        else singleWrap.classList.add('hidden');
+      }
+      if (rangeLabel && state.windowStart && state.windowEnd) {
+        const activeEnd = getActiveRangeEnd();
+        if (state.rangeMode === 'single') {
+          rangeLabel.textContent = `單日查詢：${state.examDate}`;
+        } else {
+          rangeLabel.textContent = `查詢區間：${state.windowStart} ～ ${activeEnd}`;
+        }
+      }
+      document.querySelectorAll('.range-btn').forEach((btn) => {
+        const active = btn.dataset.range === state.rangeMode;
+        btn.className = `range-btn px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors ${
+          active
+            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+        }`;
+      });
+
+      if (state.quotaLoading) {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-sky-500 animate-ping';
+        badge.className = 'text-xs font-bold px-2.5 py-1 rounded-full bg-sky-50 text-sky-800 border border-sky-200';
+        badge.textContent = '查詢名額中...';
+      } else if (state.quotaMode === 'live') {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+        badge.className = 'text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200';
+        badge.textContent = '即時名額連線';
+        if (banner) {
+          banner.innerHTML = '已連線至 <strong>Cloudflare Pages Function (/api/quota)</strong> 取得監理服務網最新剩餘名額；實際名額仍以點選「線上預約」進入系統當下為準。';
+        }
+      } else if (state.quotaMode === 'custom') {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-indigo-500';
+        badge.className = 'text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200';
+        badge.textContent = '已匯入自訂名額';
+      } else {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500';
+        badge.className = 'text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200';
+        badge.textContent = '示範名額預覽';
+      }
+      if (updatedEl) {
+        updatedEl.textContent = state.quotaUpdatedAt ? `更新：${state.quotaUpdatedAt}` : '';
+      }
+    }
+
+    function renderKPIs(stations) {
+      const counties = new Set();
+      let totalRemaining = 0;
+      stations.forEach((st) => {
+        counties.add(st.county);
+        if (Array.isArray(st.alsoCovers)) st.alsoCovers.forEach((c) => counties.add(c));
+        const qInfo = getStationQuota(st);
+        if (typeof qInfo.effectiveTotal === 'number') {
+          totalRemaining += qInfo.effectiveTotal;
+        }
+      });
+
+      document.getElementById('kpi-counties').textContent = counties.size;
+      document.getElementById('kpi-stations').textContent = stations.length;
+      document.getElementById('kpi-sessions').textContent = totalRemaining;
+    }
+
+    function renderStationList(stations) {
+      const container = document.getElementById('station-list');
+      const heading = document.getElementById('list-heading');
+      const badge = document.getElementById('active-filter-badge');
+
+      const examLabel = state.examType === 'first' ? '初考領' : '重考/免講習';
+      const dayLabel = state.selectedDay === 'all' ? '全部平日' : DAY_LABELS[state.selectedDay];
+      const periodLabel = state.selectedPeriod === 'all' ? '全天' : (state.selectedPeriod === 'am' ? '上午場' : '下午場');
+
+      if (state.selectedCounty) {
+        heading.textContent = `${state.selectedCounty} — 普通重型機車考照場次`;
+      } else {
+        heading.textContent = `${REGION_LABELS[state.selectedRegion]}監理所站考照時段`;
+      }
+      badge.textContent = `${examLabel} · ${dayLabel} · ${periodLabel}`;
+
+      if (stations.length === 0) {
+        container.innerHTML = `
+          <div class="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-3">
+            <div class="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+              <i data-lucide="calendar-x" class="w-6 h-6"></i>
+            </div>
+            <div class="text-sm font-bold text-slate-800">此篩選條件下查無開放監理站</div>
+            <p class="text-xs text-slate-500 max-w-sm mx-auto">部分監理站於特定星期停考（例如週三）或僅開放上午／下午單一時段，建議切換星期或重設篩選。</p>
+            <button type="button" id="btn-empty-reset" class="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors">顯示全部可預約監理站</button>
+          </div>
+        `;
+        const resetBtn = document.getElementById('btn-empty-reset');
+        if (resetBtn) {
+          resetBtn.addEventListener('click', resetAllFilters);
+        }
+        lucide.createIcons();
+        return;
+      }
+
+      const cardsHtml = stations.map((st) => {
+        const slot = getStationSlot(st);
+        const dayChips = [1, 2, 3, 4, 5].map((d) => {
+          const isOpen = slot.days.includes(d);
+          const dayPeriods = slot.dayPeriods ? (slot.dayPeriods[d] || []) : (isOpen ? slot.periods : []);
+          const periodTag = !isOpen
+            ? '停考'
+            : (dayPeriods.includes('am') && dayPeriods.includes('pm')
+                ? (state.examType === 'first' && !st.id.includes('tainan') && !st.id.includes('yunlin') && !st.id.includes('taichung') && !st.id.includes('changhua') ? '全天流程' : '上/下午')
+                : (dayPeriods.includes('am') ? '上午' : '下午'));
+          const isHighlightedDay = state.selectedDay === String(d);
+          const chipStyle = isOpen
+            ? (isHighlightedDay
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200')
+            : 'bg-slate-50 text-slate-400 border-slate-200/70';
+
+          return `
+            <div class="flex flex-col items-center justify-center py-1.5 px-1 rounded-lg border text-center ${chipStyle}">
+              <span class="text-[11px] font-bold">${DAY_LABELS[String(d)]}</span>
+              <span class="text-[10px] opacity-90 mt-0.5">${periodTag}</span>
+            </div>
+          `;
+        }).join('');
+
+        const proxyBanner = state.selectedCounty && st.county !== state.selectedCounty
+          ? `<div class="mb-2.5 text-[11px] bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-2.5 py-1.5">嘉義縣民眾可就近至本站（嘉義市監理站）或朴子嘉義區監理所報考。</div>`
+          : '';
+
+        return `
+          <article class="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300 transition-colors p-4">
+            ${proxyBanner}
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="text-base font-bold text-slate-900">${st.name}</h3>
+                  <span class="px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-700 rounded-md">${st.county}</span>
+                  <span class="px-2 py-0.5 text-[11px] font-medium bg-emerald-50 text-emerald-700 rounded-md">${REGION_LABELS[st.region]}</span>
+                  ${(() => {
+                    const qi = getStationQuota(st);
+                    const prefix = state.quotaMode === 'live' ? '' : (state.quotaMode === 'custom' ? '' : '示範 ');
+                    if (qi.effectiveTotal === null || qi.effectiveTotal === undefined) {
+                      return '<span class="px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-500 rounded-md">區間內無場次</span>';
+                    }
+                    if (qi.effectiveTotal === 0) {
+                      return `<span class="px-2 py-0.5 text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 rounded-md">${prefix}區間內皆額滿</span>`;
+                    }
+                    const earliestBadge = qi.earliestDate
+                      ? `<span class="px-2 py-0.5 text-[11px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 rounded-md">最快 ${formatShortDate(qi.earliestDate.date)}(${DAY_LABELS[String(qi.earliestDate.weekday)].replace('週', '')})</span>`
+                      : '';
+                    const totalBadge = qi.effectiveTotal < 10
+                      ? `<span class="px-2 py-0.5 text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded-md">${prefix}總餘 ${qi.effectiveTotal} 名（${qi.openDaysCount}日有位）</span>`
+                      : `<span class="px-2 py-0.5 text-[11px] font-bold bg-emerald-600 text-white rounded-md">${prefix}總餘 ${qi.effectiveTotal} 名（${qi.openDaysCount}日有位）</span>`;
+                    return `${totalBadge}${earliestBadge}`;
+                  })()}
+                </div>
+                <p class="text-xs text-slate-500 mt-1">${st.address} · ${st.phone}</p>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <a href="${st.sourceUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
+                  <span>官網時間表</span>
+                </a>
+                <a href="${MVDIS_BOOKING_URL}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors">
+                  <span>線上預約</span>
+                  <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i>
+                </a>
+              </div>
+            </div>
+
+            <!-- Weekly Matrix -->
+            <div class="grid grid-cols-5 gap-1.5 mt-3">
+              ${dayChips}
+            </div>
+
+            <!-- Multi-Date Remaining Quota Strip -->
+            ${(() => {
+              const qi = getStationQuota(st);
+              if (!qi.dates || qi.dates.length === 0) return '';
+              const dateCells = qi.dates.map((d) => {
+                const wdShort = DAY_LABELS[String(d.weekday)].replace('週', '');
+                let cellStyle = 'bg-emerald-50 border-emerald-200 text-emerald-900';
+                let remText = `餘 ${d.remain}`;
+                if (d.remain === 0) {
+                  cellStyle = 'bg-rose-50 border-rose-200 text-rose-700';
+                  remText = '額滿';
+                } else if (d.remain < 10) {
+                  cellStyle = 'bg-amber-50 border-amber-200 text-amber-900';
+                  remText = `剩 ${d.remain}`;
+                }
+                const detailSub = (!d.combined && d.am !== null && d.pm !== null && state.selectedPeriod === 'all')
+                  ? `<div class="text-[9px] opacity-75">上${d.am}/下${d.pm}</div>`
+                  : '';
+                return `
+                  <div class="shrink-0 w-[62px] rounded-lg border px-1.5 py-1 text-center ${cellStyle}" title="${d.date} (${DAY_LABELS[String(d.weekday)]}) 剩餘 ${d.remain} 名">
+                    <div class="text-[10px] font-medium opacity-80">${formatShortDate(d.date)}(${wdShort})</div>
+                    <div class="text-[11px] font-bold leading-tight mt-0.5">${remText}</div>
+                    ${detailSub}
+                  </div>
+                `;
+              }).join('');
+              return `
+                <div class="mt-3 pt-2.5 border-t border-slate-100">
+                  <div class="flex items-center justify-between text-[11px] text-slate-500 mb-1.5">
+                    <span class="font-semibold text-slate-600">可預約日期名額一覽（共 ${qi.dates.length} 個開考日）</span>
+                    <span class="text-[10px] text-slate-400">左右滑動檢視全部日期</span>
+                  </div>
+                  <div class="flex items-stretch gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                    ${dateCells}
+                  </div>
+                </div>
+              `;
+            })()}
+
+            <!-- Schedule Details Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100 text-xs">
+              <div class="flex items-start gap-2">
+                <span class="text-slate-400 font-semibold shrink-0 w-14">報到時間</span>
+                <span class="text-slate-800 font-medium">${slot.checkin}</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-slate-400 font-semibold shrink-0 w-14">安全講習</span>
+                <span class="text-slate-800 font-medium">${slot.lecture}</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-slate-400 font-semibold shrink-0 w-14">筆試時段</span>
+                <span class="text-slate-700">${slot.written}</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-slate-400 font-semibold shrink-0 w-14">路考時段</span>
+                <span class="text-slate-700">${slot.road}</span>
+              </div>
+            </div>
+
+            <div class="mt-2.5 text-[11px] text-slate-500 bg-slate-50 rounded-lg px-2.5 py-1.5 leading-relaxed">
+              <span class="font-semibold text-slate-600">備註：</span>${st.note}
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      container.innerHTML = cardsHtml;
+      lucide.createIcons();
+    }
+
+    function renderAll() {
+      updateQuotaBarUI();
+      renderControls();
+      const matching = getMatchingStations(false);
+      renderKPIs(matching);
+      renderStationList(matching);
+      updateMapVisibility();
+      updateMapColors();
+      renderTileMap();
+    }
+
+    function resetAllFilters() {
+      state.examType = 'first';
+      state.selectedDay = 'all';
+      state.selectedPeriod = 'all';
+      state.selectedRegion = 'all';
+      state.selectedCounty = null;
+      state.searchQuery = '';
+      state.rangeMode = 'all';
+      state.onlyAvailable = false;
+      document.getElementById('search-input').value = '';
+      document.getElementById('only-available-toggle').checked = false;
+      fetchLiveQuotas(false);
+    }
+
+    // =========================================================================
+    // 6. Modals, Toast & Event Listeners
+    // =========================================================================
+    let toastTimer = null;
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-msg').textContent = message;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 2400);
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast('已複製 Wrangler 部署指令');
+        }).catch(() => fallbackCopy(text));
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        showToast('已複製 Wrangler 部署指令');
+      } catch (e) {
+        showToast('請手動選取並複製指令');
+      }
+      document.body.removeChild(ta);
+    }
+
+    function bindEvents() {
+      document.querySelectorAll('.exam-type-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.examType = btn.dataset.examType;
+          fetchLiveQuotas(false);
+        });
+      });
+
+      document.querySelectorAll('.range-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.rangeMode = btn.dataset.range;
+          if (state.rangeMode !== 'single') {
+            state.selectedDay = 'all';
+          }
+          renderAll();
+        });
+      });
+
+      document.getElementById('exam-date-input').addEventListener('change', (e) => {
+        state.examDate = e.target.value;
+        state.rangeMode = 'single';
+        const wd = getWeekdayFromDate(state.examDate);
+        if (wd >= 1 && wd <= 5) {
+          state.selectedDay = String(wd);
+        } else {
+          state.selectedDay = 'all';
+        }
+        renderAll();
+      });
+
+      document.getElementById('only-available-toggle').addEventListener('change', (e) => {
+        state.onlyAvailable = e.target.checked;
+        renderAll();
+      });
+
+      document.getElementById('btn-refresh-quota').addEventListener('click', () => {
+        fetchLiveQuotas(true);
+      });
+
+      document.getElementById('quota-json-input').addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const parsed = JSON.parse(String(reader.result || '{}'));
+            const stationsMap = parsed.stations || parsed;
+            if (!stationsMap || typeof stationsMap !== 'object') throw new Error('格式錯誤');
+            state.quotas = stationsMap;
+            state.quotaMode = 'custom';
+            state.quotaUpdatedAt = parsed.updatedAt || formatTimeNow();
+            showToast('已成功匯入自訂名額資料');
+            renderAll();
+          } catch (err) {
+            showToast('JSON 格式不正確，請確認欄位包含 stations');
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      });
+
+      document.querySelectorAll('.period-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.selectedPeriod = btn.dataset.period;
+          renderAll();
+        });
+      });
+
+      document.querySelectorAll('.day-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.selectedDay = btn.dataset.day;
+          renderAll();
+        });
+      });
+
+      document.querySelectorAll('.region-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.selectedRegion = btn.dataset.region;
+          state.selectedCounty = null;
+          renderAll();
+        });
+      });
+
+      const searchInput = document.getElementById('search-input');
+      searchInput.addEventListener('input', (e) => {
+        state.searchQuery = e.target.value;
+        renderAll();
+      });
+
+      document.getElementById('btn-clear-search').addEventListener('click', () => {
+        state.searchQuery = '';
+        searchInput.value = '';
+        renderAll();
+      });
+
+      document.getElementById('btn-clear-county').addEventListener('click', () => {
+        state.selectedCounty = null;
+        renderAll();
+      });
+
+      document.getElementById('btn-reset-all').addEventListener('click', resetAllFilters);
+      document.getElementById('btn-retry-map').addEventListener('click', loadTaiwanMap);
+
+      document.querySelectorAll('.map-mode-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.mapMode = btn.dataset.mapMode;
+          if (state.mapMode === 'geo' && !state.geoAvailable) {
+            loadTaiwanMap();
+          }
+          renderAll();
+        });
+      });
+
+      document.getElementById('btn-guide').addEventListener('click', () => openModal('modal-guide'));
+      document.getElementById('btn-deploy').addEventListener('click', () => openModal('modal-deploy'));
+
+      document.querySelectorAll('[data-close-modal]').forEach((btn) => {
+        btn.addEventListener('click', () => closeModal(btn.dataset.closeModal));
+      });
+
+      ['modal-guide', 'modal-deploy'].forEach((id) => {
+        const overlay = document.getElementById(id);
+        overlay.addEventListener('click', (e) => {
+          if (e.target === overlay) closeModal(id);
+        });
+      });
+
+      document.getElementById('btn-copy-cmd').addEventListener('click', () => {
+        const cmd = document.getElementById('wrangler-cmd').textContent.trim();
+        copyText(cmd);
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          closeModal('modal-guide');
+          closeModal('modal-deploy');
+        }
+      });
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      state.examDate = getDefaultExamDate();
+      lucide.createIcons();
+      bindEvents();
+      fetchLiveQuotas(false);
+      loadTaiwanMap();
+    });
+  </script>
+</body>
+</html>
