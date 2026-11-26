@@ -179,6 +179,34 @@ export async function onRequestGet(context) {
     }
   );
 
-  context.waitUntil(cache.put(cacheKey, response.clone()));
+  if (typeof context.waitUntil === 'function') {
+    context.waitUntil(cache.put(cacheKey, response.clone()));
+  }
   return response;
 }
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    if (url.pathname === '/api/quota') {
+      if (request.method !== 'GET') {
+        return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+          status: 405,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' }
+        });
+      }
+      return onRequestGet({
+        request,
+        env,
+        waitUntil: (promise) => ctx.waitUntil(promise)
+      });
+    }
+
+    if (env && env.ASSETS) {
+      return env.ASSETS.fetch(request);
+    }
+
+    return new Response('Not Found', { status: 404 });
+  }
+};

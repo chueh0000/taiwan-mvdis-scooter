@@ -1,3 +1,7 @@
 name = "taiwan-mvdis-scooter"
-pages_build_output_dir = "."
+main = "functions/api/quota.js"
 compatibility_date = "2026-11-01"
+
+[assets]
+directory = "."
+binding = "ASSETS"
