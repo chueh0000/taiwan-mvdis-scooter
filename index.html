@@ -257,6 +257,7 @@
             <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500 inline-block"></span>名額充足 (≥10)</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-amber-400 inline-block"></span>名額緊張 (1–9)</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-rose-400 inline-block"></span>已額滿 (0)</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-slate-200 border border-slate-300 inline-block"></span>區間無場次</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-sky-500 inline-block"></span>目前選取</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-slate-200 inline-block"></span>無場次</span>
           </div>
@@ -1759,13 +1760,10 @@
           const name = normalizeCountyName(d.properties);
           if (state.selectedCounty === name) return '#0284c7';
           const info = statsMap.get(name);
-          if (!info || info.count === 0) return '#e2e8f0';
-          if (info.hasQuota) {
-            if (info.remaining === 0) return '#fb7185';
-            if (info.remaining < 10) return '#fbbf24';
-            return '#10b981';
-          }
-          return '#6ee7b7';
+          if (!info || info.count === 0 || !info.hasQuota) return '#e2e8f0';
+          if (info.remaining === 0) return '#fb7185';
+          if (info.remaining < 10) return '#fbbf24';
+          return '#10b981';
         })
         .attr('stroke', (d) => {
           const name = normalizeCountyName(d.properties);
@@ -1776,26 +1774,32 @@
           return state.selectedCounty === name ? 2.2 : 1;
         });
 
-      // Render station count badges on counties with matching stations
+      // Render remaining quota badges only on counties that actually have sessions in the active range
       countyBadgeGroup.selectAll('*').remove();
       statsMap.forEach((info, countyName) => {
-        if (info.isProxyOnly) return;
+        if (info.isProxyOnly || !info.hasQuota) return;
         const pos = countyCentroids.get(countyName);
         if (!pos) return;
         const isSelected = state.selectedCounty === countyName;
+        const strokeColor = isSelected
+          ? '#ffffff'
+          : (info.remaining === 0 ? '#e11d48' : (info.remaining < 10 ? '#d97706' : '#059669'));
+        const textColor = isSelected
+          ? '#ffffff'
+          : (info.remaining === 0 ? '#be123c' : (info.remaining < 10 ? '#b45309' : '#065f46'));
         const g = countyBadgeGroup.append('g').attr('transform', `translate(${pos[0]}, ${pos[1]})`);
         g.append('circle')
           .attr('r', 8.5)
           .attr('fill', isSelected ? '#0f172a' : '#ffffff')
-          .attr('stroke', isSelected ? '#ffffff' : '#059669')
+          .attr('stroke', strokeColor)
           .attr('stroke-width', 1.5);
         g.append('text')
           .attr('text-anchor', 'middle')
           .attr('dy', '0.35em')
           .attr('font-size', '9px')
           .attr('font-weight', '700')
-          .attr('fill', isSelected ? '#ffffff' : '#065f46')
-          .text(info.hasQuota ? info.remaining : info.count);
+          .attr('fill', textColor)
+          .text(info.remaining);
       });
     }
 
@@ -1814,7 +1818,7 @@
       } else {
         const names = info.stations.map((s) => s.name).join('、');
         const earliestText = info.earliestDate ? `｜最快 ${formatShortDate(info.earliestDate.date)}(${DAY_LABELS[String(info.earliestDate.weekday)].replace('週', '')})` : '｜區間內額滿';
-        const qText = info.hasQuota ? `｜區間尚餘 ${info.remaining} 名${earliestText}` : '';
+        const qText = info.hasQuota ? `｜區間尚餘 ${info.remaining} 名${earliestText}` : '｜區間內無場次';
         bodyEl.textContent = `${info.count} 站（${names}）${qText}`;
       }
 
@@ -1874,25 +1878,21 @@
 
         if (isSelected) {
           styleClass = 'bg-sky-600 text-white border-sky-700 ring-2 ring-sky-300 shadow-sm';
-        } else if (info && info.count > 0) {
-          if (info.hasQuota) {
-            if (info.remaining === 0) {
-              styleClass = 'bg-rose-400 text-white border-rose-500 hover:bg-rose-500';
-            } else if (info.remaining < 10) {
-              styleClass = 'bg-amber-400 text-amber-950 border-amber-500 hover:bg-amber-500';
-            } else {
-              styleClass = 'bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600 shadow-xs';
-            }
+        } else if (info && info.count > 0 && info.hasQuota) {
+          if (info.remaining === 0) {
+            styleClass = 'bg-rose-400 text-white border-rose-500 hover:bg-rose-500';
+          } else if (info.remaining < 10) {
+            styleClass = 'bg-amber-400 text-amber-950 border-amber-500 hover:bg-amber-500';
           } else {
-            styleClass = 'bg-emerald-200 text-emerald-950 border-emerald-400 hover:bg-emerald-300';
+            styleClass = 'bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600 shadow-xs';
           }
         }
 
-        if (info && info.count > 0 && !info.isProxyOnly) {
-          const val = info.hasQuota ? info.remaining : info.count;
+        if (info && info.count > 0 && !info.isProxyOnly && info.hasQuota) {
+          const val = info.remaining;
           const badgeBg = isSelected
             ? 'bg-slate-900 text-white'
-            : (info.hasQuota && info.remaining === 0 ? 'bg-white text-rose-600' : (info.hasQuota && info.remaining < 10 ? 'bg-white text-amber-700' : 'bg-white text-emerald-700'));
+            : (info.remaining === 0 ? 'bg-white text-rose-600' : (info.remaining < 10 ? 'bg-white text-amber-700' : 'bg-white text-emerald-700'));
           badgeHtml = `<span class="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center shadow-xs border border-slate-900/10 ${badgeBg}">${val}</span>`;
         }
 
