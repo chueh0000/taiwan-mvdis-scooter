@@ -22,6 +22,19 @@
     .county-path:hover {
       filter: brightness(0.95);
     }
+    .inset-box {
+      cursor: pointer;
+    }
+    .inset-box .inset-rect {
+      transition: fill 0.18s ease, stroke 0.18s ease, stroke-width 0.18s ease;
+    }
+    .inset-box:hover .inset-rect {
+      fill: #f1f5f9;
+      stroke: #94a3b8;
+    }
+    .inset-box:hover .county-path {
+      filter: brightness(0.95);
+    }
     .map-tooltip {
       pointer-events: none;
       transition: opacity 0.12s ease, transform 0.12s ease;
@@ -1667,7 +1680,7 @@
         .enter()
         .append('path')
         .attr('d', mainPath)
-        .attr('class', 'county-path')
+        .attr('class', 'county-path county-hit-target')
         .attr('data-county', (d) => normalizeCountyName(d.properties))
         .each(function (d) {
           const name = normalizeCountyName(d.properties);
@@ -1687,8 +1700,15 @@
       const insetGroup = svg.append('g').attr('class', 'insets-group');
       insets.forEach((box) => {
         const feat = mapGeoFeatures.find((f) => normalizeCountyName(f.properties) === box.name);
-        // Box frame
-        insetGroup.append('rect')
+        const boxGroup = insetGroup.append('g')
+          .datum({ properties: { COUNTYNAME: box.name } })
+          .attr('class', 'inset-box county-hit-target')
+          .attr('data-county', box.name);
+
+        // Box frame (entire dashed rectangle is clickable)
+        boxGroup.append('rect')
+          .attr('class', 'inset-rect')
+          .attr('data-county', box.name)
           .attr('x', box.x)
           .attr('y', box.y)
           .attr('width', box.w)
@@ -1698,12 +1718,13 @@
           .attr('stroke', '#cbd5e1')
           .attr('stroke-dasharray', '3 2');
 
-        insetGroup.append('text')
+        boxGroup.append('text')
           .attr('x', box.x + 6)
           .attr('y', box.y + 14)
           .attr('font-size', '10px')
           .attr('font-weight', '600')
           .attr('fill', '#64748b')
+          .style('pointer-events', 'none')
           .text(box.label);
 
         if (feat) {
@@ -1712,22 +1733,23 @@
             feat
           );
           const p = d3.geoPath().projection(proj);
-          insetGroup.append('path')
+          boxGroup.append('path')
             .datum(feat)
             .attr('d', p)
             .attr('class', 'county-path')
-            .attr('data-county', box.name);
-
-          countyCentroids.set(box.name, [box.x + box.w - 14, box.y + box.h - 14]);
+            .attr('data-county', box.name)
+            .style('pointer-events', 'none');
         }
+
+        countyCentroids.set(box.name, [box.x + box.w - 14, box.y + box.h - 14]);
       });
 
       // Badge overlay layer
       countyBadgeGroup = svg.append('g').attr('class', 'badge-layer').style('pointer-events', 'none');
 
-      // Attach pointer events to all county paths
+      // Attach pointer events to all county paths and offshore inset boxes
       countyPathSelection = svg.selectAll('.county-path');
-      countyPathSelection
+      svg.selectAll('.county-hit-target')
         .on('mouseenter', function (event, d) {
           const name = normalizeCountyName(d.properties);
           showTooltip(event, name);
@@ -1771,6 +1793,20 @@
         .attr('stroke-width', (d) => {
           const name = normalizeCountyName(d.properties);
           return state.selectedCounty === name ? 2.2 : 1;
+        });
+
+      d3.select('#taiwan-map').selectAll('.inset-rect')
+        .attr('fill', function () {
+          const name = this.getAttribute('data-county');
+          return state.selectedCounty === name ? '#e0f2fe' : '#ffffff';
+        })
+        .attr('stroke', function () {
+          const name = this.getAttribute('data-county');
+          return state.selectedCounty === name ? '#0284c7' : '#cbd5e1';
+        })
+        .attr('stroke-width', function () {
+          const name = this.getAttribute('data-county');
+          return state.selectedCounty === name ? 2 : 1;
         });
 
       // Render remaining quota badges only on counties that actually have sessions in the active range
@@ -2052,7 +2088,7 @@
         badge.className = 'text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200';
         badge.textContent = '即時名額連線';
         if (banner) {
-          banner.innerHTML = '已連線至 <strong>Cloudflare Pages Function (/api/quota)</strong> 取得監理服務網最新剩餘名額；實際名額仍以點選「線上預約」進入系統當下為準。';
+          banner.innerHTML = '實際名額仍以點選「線上預約」進入系統當下為準。';
         }
       } else if (state.quotaMode === 'custom') {
         dot.className = 'w-2.5 h-2.5 rounded-full bg-indigo-500';
